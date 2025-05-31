@@ -1,9 +1,11 @@
-use editor::{Editor, ToPoint, scroll::Autoscroll};
+use editor::{Bias, Editor, ToOffset, ToPoint, scroll::Autoscroll};
 use gpui::{Context, Window, actions};
 use language::{Point, SelectionGoal};
 use regex::Regex;
+use text::Selection;
 
-use crate::Vim;
+use crate::{Vim, regex_prompt::RegexPrompt};
+use anyhow;
 
 actions!(
     vim,
@@ -116,91 +118,54 @@ pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
 
 impl Vim {
     fn select_regex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a default pattern that selects all words
-        // TODO: Add UI prompt for regex input
-        let pattern = r"\b\w+\b"; // Select all word boundaries
+        let Some(workspace) = self.workspace(window) else {
+            return;
+        };
 
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            let buffer = editor.buffer().read(cx).snapshot(cx);
-            let selections = editor.selections.all_adjusted(cx);
+        let vim = cx.weak_entity();
+        workspace.update(cx, |workspace, cx| {
+            let rx = RegexPrompt::prompt_for_regex(
+                workspace,
+                "Select all regex matches".to_string(),
+                window,
+                cx,
+            );
 
-            if let Ok(regex) = Regex::new(pattern) {
-                let mut new_ranges = Vec::new();
-
-                for selection in &selections {
-                    let text = buffer
-                        .text_for_range(selection.start..selection.end)
-                        .collect::<String>();
-                    let selection_start_offset = buffer.point_to_offset(selection.start);
-
-                    for match_result in regex.find_iter(&text) {
-                        let start_offset = selection_start_offset + match_result.start();
-                        let end_offset = selection_start_offset + match_result.end();
-                        let start_point = buffer.offset_to_point(start_offset);
-                        let end_point = buffer.offset_to_point(end_offset);
-                        new_ranges.push(start_point..end_point);
-                    }
+            cx.spawn_in(window, async move |_, cx| {
+                if let Ok(Some(pattern)) = rx.await {
+                    vim.update_in(cx, |vim, window, cx| {
+                        vim.apply_regex_selection(&pattern, window, cx);
+                    })?;
                 }
-
-                if !new_ranges.is_empty() {
-                    editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                        s.select_ranges(new_ranges);
-                    });
-                }
-            }
+                anyhow::Ok(())
+            })
+            .detach_and_log_err(cx);
         });
     }
 
     fn split_selection_on_regex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a default pattern that splits on whitespace
-        // TODO: Add UI prompt for regex input
-        let pattern = r"\s+"; // Split on whitespace
-        
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            let buffer = editor.buffer().read(cx).snapshot(cx);
-            let selections = editor.selections.all_adjusted(cx);
-            
-            if let Ok(regex) = Regex::new(pattern) {
-                let mut new_ranges = Vec::new();
-                
-                for selection in &selections {
-                    let text = buffer.text_for_range(selection.start..selection.end).collect::<String>();
-                    let selection_start_offset = buffer.point_to_offset(selection.start);
-                    
-                    // Find split positions within this selection
-                    let mut last_end = 0;
-                    for match_result in regex.find_iter(&text) {
-                        // Add text before the match as a selection
-                        if match_result.start() > last_end {
-                            let start_offset = selection_start_offset + last_end;
-                            let end_offset = selection_start_offset + match_result.start();
-                            let start_point = buffer.offset_to_point(start_offset);
-                            let end_point = buffer.offset_to_point(end_offset);
-                            if start_point < end_point {
-                                new_ranges.push(start_point..end_point);
-                            }
-                        }
-                        last_end = match_result.end();
-                    }
-                    
-                    // Add remaining text after last match
-                    if last_end < text.len() {
-                        let start_offset = selection_start_offset + last_end;
-                        let end_offset = selection_start_offset + text.len();
-                        let start_point = buffer.offset_to_point(start_offset);
-                        let end_point = buffer.offset_to_point(end_offset);
-                        if start_point < end_point {
-                            new_ranges.push(start_point..end_point);
-                        }
-                    }
+        let Some(workspace) = self.workspace(window) else {
+            return;
+        };
+
+        let vim = cx.weak_entity();
+        workspace.update(cx, |workspace, cx| {
+            let rx = RegexPrompt::prompt_for_regex(
+                workspace,
+                "Split selections on regex matches".to_string(),
+                window,
+                cx,
+            );
+
+            cx.spawn_in(window, async move |_, cx| {
+                if let Ok(Some(pattern)) = rx.await {
+                    vim.update_in(cx, |vim, window, cx| {
+                        vim.apply_split_selection(&pattern, window, cx);
+                    })?;
                 }
-                
-                if !new_ranges.is_empty() {
-                    editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                        s.select_ranges(new_ranges);
-                    });
-                }
-            }
+                anyhow::Ok(())
+            })
+            .detach_and_log_err(cx);
         });
     }
 
@@ -527,11 +492,11 @@ impl Vim {
         self.update_editor(window, cx, |_, editor, window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
             let selections = editor.selections.all_adjusted(cx);
-            
+
             if selections.len() <= 1 {
                 return;
             }
-            
+
             // Collect the text content from each selection
             let mut contents: Vec<String> = selections
                 .iter()
@@ -541,34 +506,34 @@ impl Vim {
                         .collect::<String>()
                 })
                 .collect();
-            
+
             // Rotate backward: move first element to end
             if !contents.is_empty() {
                 let first_content = contents.remove(0);
                 contents.push(first_content);
             }
-            
+
             // Apply the rotated content to the original selection positions
             let edits: Vec<_> = selections
                 .iter()
                 .zip(contents.iter())
                 .map(|(selection, content)| (selection.start..selection.end, content.clone()))
                 .collect();
-            
+
             if !edits.is_empty() {
                 editor.edit(edits, cx);
-                
+
                 // Update selections to cover the new content at original positions
                 let new_buffer = editor.buffer().read(cx).snapshot(cx);
                 let mut new_ranges = Vec::new();
-                
+
                 for (selection, content) in selections.iter().zip(contents.iter()) {
                     let start_point = selection.start;
                     let end_offset = new_buffer.point_to_offset(start_point) + content.len();
                     let end_point = new_buffer.offset_to_point(end_offset);
                     new_ranges.push(start_point..end_point);
                 }
-                
+
                 editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                     s.select_ranges(new_ranges);
                 });
@@ -580,11 +545,11 @@ impl Vim {
         self.update_editor(window, cx, |_, editor, window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
             let selections = editor.selections.all_adjusted(cx);
-            
+
             if selections.len() <= 1 {
                 return;
             }
-            
+
             // Collect the text content from each selection
             let mut contents: Vec<String> = selections
                 .iter()
@@ -594,34 +559,34 @@ impl Vim {
                         .collect::<String>()
                 })
                 .collect();
-            
+
             // Rotate forward: move last element to front
             if !contents.is_empty() {
                 let last_content = contents.pop().unwrap();
                 contents.insert(0, last_content);
             }
-            
+
             // Apply the rotated content to the original selection positions
             let edits: Vec<_> = selections
                 .iter()
                 .zip(contents.iter())
                 .map(|(selection, content)| (selection.start..selection.end, content.clone()))
                 .collect();
-            
+
             if !edits.is_empty() {
                 editor.edit(edits, cx);
-                
+
                 // Update selections to cover the new content at original positions
                 let new_buffer = editor.buffer().read(cx).snapshot(cx);
                 let mut new_ranges = Vec::new();
-                
+
                 for (selection, content) in selections.iter().zip(contents.iter()) {
                     let start_point = selection.start;
                     let end_offset = new_buffer.point_to_offset(start_point) + content.len();
                     let end_point = new_buffer.offset_to_point(end_offset);
                     new_ranges.push(start_point..end_point);
                 }
-                
+
                 editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                     s.select_ranges(new_ranges);
                 });
@@ -630,79 +595,225 @@ impl Vim {
     }
 
     fn keep_selections(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a default pattern that keeps selections containing letters
-        // TODO: Add UI prompt for regex input
-        let pattern = r"[a-zA-Z]"; // Keep selections containing letters
+        let Some(workspace) = self.workspace(window) else {
+            return;
+        };
 
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            let buffer = editor.buffer().read(cx).snapshot(cx);
-            let selections = editor.selections.all_adjusted(cx);
+        let vim = cx.weak_entity();
+        workspace.update(cx, |workspace, cx| {
+            let rx = RegexPrompt::prompt_for_regex(
+                workspace,
+                "Keep selections matching regex".to_string(),
+                window,
+                cx,
+            );
 
-            if let Ok(regex) = Regex::new(pattern) {
-                let mut new_ranges = Vec::new();
-
-                for selection in &selections {
-                    let text = buffer
-                        .text_for_range(selection.start..selection.end)
-                        .collect::<String>();
-
-                    if regex.is_match(&text) {
-                        new_ranges.push(selection.start..selection.end);
-                    }
+            cx.spawn_in(window, async move |_, cx| {
+                if let Ok(Some(pattern)) = rx.await {
+                    vim.update_in(cx, |vim, window, cx| {
+                        vim.apply_keep_selections(&pattern, window, cx);
+                    })?;
                 }
-
-                if !new_ranges.is_empty() {
-                    editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                        s.select_ranges(new_ranges);
-                    });
-                } else {
-                    // If no selections match, keep a single cursor at the first selection
-                    if !selections.is_empty() {
-                        let first = &selections[0];
-                        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                            s.select_ranges(vec![first.start..first.start]);
-                        });
-                    }
-                }
-            }
+                anyhow::Ok(())
+            })
+            .detach_and_log_err(cx);
         });
     }
 
     fn remove_selections(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a default pattern that removes selections containing only digits
-        // TODO: Add UI prompt for regex input
-        let pattern = r"^\d+$"; // Remove selections that are only digits
+        let Some(workspace) = self.workspace(window) else {
+            return;
+        };
+
+        let vim = cx.weak_entity();
+        workspace.update(cx, |workspace, cx| {
+            let rx = RegexPrompt::prompt_for_regex(
+                workspace,
+                "Remove selections matching regex".to_string(),
+                window,
+                cx,
+            );
+
+            cx.spawn_in(window, async move |_, cx| {
+                if let Ok(Some(pattern)) = rx.await {
+                    vim.update_in(cx, |vim, window, cx| {
+                        vim.apply_remove_selections(&pattern, window, cx);
+                    })?;
+                }
+                anyhow::Ok(())
+            })
+            .detach_and_log_err(cx);
+        });
+    }
+
+    fn apply_regex_selection(
+        &mut self,
+        pattern: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(regex) = Regex::new(pattern) else {
+            return;
+        };
 
         self.update_editor(window, cx, |_, editor, window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
             let selections = editor.selections.all_adjusted(cx);
+            let mut new_selections = Vec::new();
 
-            if let Ok(regex) = Regex::new(pattern) {
-                let mut new_ranges = Vec::new();
+            for selection in selections {
+                let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+                let selection_start_offset = selection.start.to_offset(&buffer);
 
-                for selection in &selections {
-                    let text = buffer
-                        .text_for_range(selection.start..selection.end)
-                        .collect::<String>();
+                for mat in regex.find_iter(&selection_text) {
+                    let start_offset = selection_start_offset + mat.start();
+                    let end_offset = selection_start_offset + mat.end();
 
-                    if !regex.is_match(&text) {
-                        new_ranges.push(selection.start..selection.end);
-                    }
-                }
+                    let start_anchor = buffer.anchor_at(start_offset, Bias::Left);
+                    let end_anchor = buffer.anchor_at(end_offset, Bias::Right);
 
-                if !new_ranges.is_empty() {
-                    editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                        s.select_ranges(new_ranges);
+                    new_selections.push(Selection {
+                        id: selection.id,
+                        start: start_anchor,
+                        end: end_anchor,
+                        reversed: false,
+                        goal: SelectionGoal::None,
                     });
-                } else {
-                    // If all selections would be removed, keep a single cursor at the first selection
-                    if !selections.is_empty() {
-                        let first = &selections[0];
-                        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                            s.select_ranges(vec![first.start..first.start]);
+                }
+            }
+
+            if !new_selections.is_empty() {
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.select_anchors(new_selections);
+                });
+            }
+        });
+    }
+
+    fn apply_split_selection(
+        &mut self,
+        pattern: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(regex) = Regex::new(pattern) else {
+            return;
+        };
+
+        self.update_editor(window, cx, |_, editor, window, cx| {
+            let buffer = editor.buffer().read(cx).snapshot(cx);
+            let selections = editor.selections.all_adjusted(cx);
+            let mut new_selections = Vec::new();
+
+            for selection in selections {
+                let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+                let selection_start_offset = selection.start.to_offset(&buffer);
+                let mut last_end = 0;
+
+                for mat in regex.find_iter(&selection_text) {
+                    // Add text before the match
+                    if mat.start() > last_end {
+                        let start_offset = selection_start_offset + last_end;
+                        let end_offset = selection_start_offset + mat.start();
+
+                        let start_anchor = buffer.anchor_at(start_offset, Bias::Left);
+                        let end_anchor = buffer.anchor_at(end_offset, Bias::Right);
+
+                        new_selections.push(Selection {
+                            id: selection.id,
+                            start: start_anchor,
+                            end: end_anchor,
+                            reversed: false,
+                            goal: SelectionGoal::None,
                         });
                     }
+                    last_end = mat.end();
                 }
+
+                // Add remaining text after last match
+                if last_end < selection_text.len() {
+                    let start_offset = selection_start_offset + last_end;
+                    let end_offset = selection.end.to_offset(&buffer);
+
+                    let start_anchor = buffer.anchor_at(start_offset, Bias::Left);
+                    let end_anchor = buffer.anchor_at(end_offset, Bias::Right);
+
+                    new_selections.push(Selection {
+                        id: selection.id,
+                        start: start_anchor,
+                        end: end_anchor,
+                        reversed: false,
+                        goal: SelectionGoal::None,
+                    });
+                }
+            }
+
+            if !new_selections.is_empty() {
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.select_anchors(new_selections);
+                });
+            }
+        });
+    }
+
+    fn apply_keep_selections(
+        &mut self,
+        pattern: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(regex) = Regex::new(pattern) else {
+            return;
+        };
+
+        self.update_editor(window, cx, |_, editor, window, cx| {
+            let buffer = editor.buffer().read(cx).snapshot(cx);
+            let selections = editor.selections.all_adjusted(cx);
+            let mut filtered_selections = Vec::new();
+
+            for selection in selections {
+                let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+
+                if regex.is_match(&selection_text) {
+                    filtered_selections.push(selection);
+                }
+            }
+
+            if !filtered_selections.is_empty() {
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.select_ranges(filtered_selections.into_iter().map(|s| s.range()));
+                });
+            }
+        });
+    }
+
+    fn apply_remove_selections(
+        &mut self,
+        pattern: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(regex) = Regex::new(pattern) else {
+            return;
+        };
+
+        self.update_editor(window, cx, |_, editor, window, cx| {
+            let buffer = editor.buffer().read(cx).snapshot(cx);
+            let selections = editor.selections.all_adjusted(cx);
+            let mut filtered_selections = Vec::new();
+
+            for selection in selections {
+                let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+
+                if !regex.is_match(&selection_text) {
+                    filtered_selections.push(selection);
+                }
+            }
+
+            if !filtered_selections.is_empty() {
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.select_ranges(filtered_selections.into_iter().map(|s| s.range()));
+                });
             }
         });
     }
@@ -712,7 +823,7 @@ impl Vim {
 mod test {
     use indoc::indoc;
 
-    use crate::{state::Mode, test::VimTestContext};
+    use crate::{state::Mode, test::VimTestContext, VimAddon};
 
     #[gpui::test]
     async fn test_trim_selections(cx: &mut gpui::TestAppContext) {
@@ -774,7 +885,7 @@ mod test {
     #[gpui::test]
     async fn test_rotate_selection_contents_simple(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
-        
+
         // Simple test with just two selections
         cx.set_state("«aˇ» «bˇ»", Mode::HelixNormal);
 
@@ -787,7 +898,7 @@ mod test {
     // #[gpui::test]
     // async fn test_rotate_selection_contents_comprehensive(cx: &mut gpui::TestAppContext) {
     //     let mut cx = VimTestContext::new(cx, true).await;
-    //     
+    //
     //     // Test with three selections with different lengths to verify selection positioning
     //     cx.set_state(
     //         indoc! {"
@@ -797,7 +908,7 @@ mod test {
 
     //     // Rotate forward: one->two->three->one
     //     // Content "three" should move to first position
-    //     // Content "one" should move to second position  
+    //     // Content "one" should move to second position
     //     // Content "two" should move to third position
     //     cx.simulate_keystrokes("alt-)");
 
@@ -820,8 +931,8 @@ mod test {
     #[gpui::test]
     async fn test_select_regex(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
-        
-        // Test selecting all words within a selection using default pattern
+
+        // Test selecting all words within a selection using word pattern
         cx.set_state(
             indoc! {"
             «hello world testˇ»
@@ -829,7 +940,13 @@ mod test {
             Mode::HelixNormal,
         );
 
-        cx.simulate_keystrokes("s");
+        // Directly call apply_regex_selection with word pattern
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.apply_regex_selection(r"\b\w+\b", window, cx);
+            });
+        });
 
         // Should select each word within the original selection
         cx.assert_state(
@@ -843,8 +960,8 @@ mod test {
     #[gpui::test]
     async fn test_split_selection_on_regex(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
-        
-        // Test splitting selection on whitespace using default pattern
+
+        // Test splitting selection on whitespace
         cx.set_state(
             indoc! {"
             «hello world testˇ»
@@ -852,7 +969,13 @@ mod test {
             Mode::HelixNormal,
         );
 
-        cx.simulate_keystrokes("shift-s");
+        // Directly call apply_split_selection with whitespace pattern
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.apply_split_selection(r"\s+", window, cx);
+            });
+        });
 
         // Should split on whitespace, creating selections for the non-whitespace parts
         cx.assert_state(
@@ -866,8 +989,8 @@ mod test {
     #[gpui::test]
     async fn test_keep_selections(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
-        
-        // Test keeping only selections that contain letters
+
+        // Create multiple selections, some matching pattern, some not
         cx.set_state(
             indoc! {"
             «helloˇ» «123ˇ» «worldˇ» «456ˇ»
@@ -875,9 +998,15 @@ mod test {
             Mode::HelixNormal,
         );
 
-        cx.simulate_keystrokes("shift-k");
+        // Directly call apply_keep_selections with word pattern (alphabetic only)
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.apply_keep_selections(r"^[a-zA-Z]+$", window, cx);
+            });
+        });
 
-        // Should keep only selections containing letters (hello, world)
+        // Should keep only selections that match the pattern (alphabetic words)
         cx.assert_state(
             indoc! {"
             «helloˇ» 123 «worldˇ» 456
@@ -889,8 +1018,8 @@ mod test {
     #[gpui::test]
     async fn test_remove_selections(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
-        
-        // Test removing selections that are only digits
+
+        // Create multiple selections, some matching pattern, some not
         cx.set_state(
             indoc! {"
             «helloˇ» «123ˇ» «worldˇ» «456ˇ»
@@ -898,9 +1027,15 @@ mod test {
             Mode::HelixNormal,
         );
 
-        cx.simulate_keystrokes("alt-k");
+        // Directly call apply_remove_selections with numeric pattern
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.apply_remove_selections(r"^\d+$", window, cx);
+            });
+        });
 
-        // Should remove selections that are only digits (123, 456)
+        // Should remove selections that match the pattern (numeric only)
         cx.assert_state(
             indoc! {"
             «helloˇ» 123 «worldˇ» 456

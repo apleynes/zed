@@ -470,6 +470,14 @@
     }
   },
   {
+    "context": "RegexPrompt",
+    "bindings": {
+      "enter": "regex_prompt::Confirm",
+      "escape": "regex_prompt::Dismiss",
+      "ctrl-c": "regex_prompt::Dismiss"
+    }
+  },
+  {
     "context": "vim_mode == insert && !(showing_code_actions || showing_completions)",
     "bindings": {
       "ctrl-p": "editor::ShowWordCompletions",

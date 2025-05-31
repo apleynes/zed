@@ -58,5 +58,8 @@
     "**/Thumbs.db",
     "**/.classpath",
     "**/.settings"
-  ]
+  ],
+  "cargo": {
+    "fetch_cargo_diagnostics": false
+  }
 }

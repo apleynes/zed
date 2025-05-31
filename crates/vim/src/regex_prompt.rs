@@ -33,7 +33,7 @@ impl RegexPrompt {
         let focus_handle = cx.focus_handle();
         
         // Focus the editor when the prompt is created
-        window.focus(&focus_handle);
+        focus_handle.focus(window);
 
         Self {
             editor,
@@ -99,49 +99,60 @@ impl Focusable for RegexPrompt {
 impl ModalView for RegexPrompt {}
 
 impl Render for RegexPrompt {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focus_handle = self.focus_handle.clone();
+        
+        // Focus the editor when rendering
+        self.editor.update(cx, |editor, cx| {
+            editor.focus_handle(cx).focus(window);
+        });
 
-        v_flex()
-            .key_context("RegexPrompt")
-            .on_action(cx.listener(Self::confirm))
-            .on_action(cx.listener(Self::dismiss))
-            .track_focus(&focus_handle)
-            .elevation_3(cx)
-            .w(rems(34.))
+        div()
+            .absolute()
+            .bottom_4()
+            .right_4()
             .child(
                 v_flex()
-                    .gap_2()
-                    .p_4()
+                    .key_context("RegexPrompt")
+                    .on_action(cx.listener(Self::confirm))
+                    .on_action(cx.listener(Self::dismiss))
+                    .track_focus(&focus_handle)
+                    .elevation_3(cx)
+                    .w(rems(34.))
                     .child(
-                        Label::new(self.prompt_message.clone())
-                            .size(LabelSize::Default)
-                    )
-                    .child(
-                        Label::new("Tip: Use \\s for whitespace, \\w for word chars, \\d for digits")
-                            .size(LabelSize::Small)
-                            .color(Color::Muted)
-                    )
-                    .child(
-                        self.editor.clone()
-                    )
-                    .child(
-                        h_flex()
+                        v_flex()
                             .gap_2()
-                            .justify_end()
+                            .p_4()
                             .child(
-                                Button::new("cancel", "Cancel")
-                                    .style(ButtonStyle::Filled)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.dismiss(&Dismiss, window, cx);
-                                    }))
+                                Label::new(self.prompt_message.clone())
+                                    .size(LabelSize::Default)
                             )
                             .child(
-                                Button::new("confirm", "Confirm")
-                                    .style(ButtonStyle::Filled)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.confirm(&Confirm, window, cx);
-                                    }))
+                                Label::new("Tip: Use \\s for whitespace, \\w for word chars, \\d for digits")
+                                    .size(LabelSize::Small)
+                                    .color(Color::Muted)
+                            )
+                            .child(
+                                self.editor.clone()
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .justify_end()
+                                    .child(
+                                        Button::new("cancel", "Cancel")
+                                            .style(ButtonStyle::Filled)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.dismiss(&Dismiss, window, cx);
+                                            }))
+                                    )
+                                    .child(
+                                        Button::new("confirm", "Confirm")
+                                            .style(ButtonStyle::Filled)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.confirm(&Confirm, window, cx);
+                                            }))
+                                    )
                             )
                     )
             )

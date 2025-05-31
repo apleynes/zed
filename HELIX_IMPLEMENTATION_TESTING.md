@@ -27,6 +27,7 @@ The following Helix selection commands have been implemented as native Zed actio
 - **AlignSelections** (`&`) - Align selections in columns ✅
 - **RotateSelectionContentsBackward** (`Alt-(`) - Rotate text between selections ✅
 - **RotateSelectionContentsForward** (`Alt-)`) - Rotate text between selections ✅
+- **CollapseSelection** (`;`) - Fixed to collapse to cursor position instead of start ✅
 - **FlipSelections** (`Alt-;`) - Flip selection cursor and anchor ✅
 
 ### TODO/Unimplemented Commands
@@ -81,7 +82,20 @@ Result:  The quˇick brown
 2. Press `,`
 3. **Expected**: Only the primary (most recently created) selection remains
 
-#### 5. Copy Selection to Next Line (`C`)
+#### 5. Collapse Selection (`;`)
+
+1. Create a multi-character selection
+2. Press `;`
+3. **Expected**: Selection collapses to cursor position (head), not start
+
+**Test Case**:
+```
+Initial: The qu«ick ˇ»brown
+Press: ;
+Result:  The quick ˇbrown
+```
+
+#### 6. Copy Selection to Next Line (`C`)
 
 1. Create a selection on a line
 2. Press `C`
@@ -96,11 +110,24 @@ Result:  The qu«ick ˇ»brown
          fox ju«mps ˇ»over
 ```
 
-#### 6. Selection Rotation (`(` and `)`)
+#### 7. Selection Rotation (`(` and `)`)
 
 1. Create multiple selections
 2. Press `(` or `)`
 3. **Expected**: Selection order changes (primary selection rotates)
+
+#### 8. Selection Content Rotation (`Alt-(` and `Alt-)`)
+
+1. Create multiple selections with different content
+2. Press `Alt-)` for forward rotation or `Alt-(` for backward rotation
+3. **Expected**: Content rotates between selections, selections follow the content
+
+**Test Case**:
+```
+Initial: «aˇ» «bˇ»
+Press: Alt-)
+Result:  «bˇ» «aˇ»
+```
 
 ### Testing Key Bindings
 
@@ -160,7 +187,21 @@ Current status: **11 tests passing, 0 failing**
 **Solution**: Replaced `swap_head_tail()` with manual head/tail swapping
 **Status**: ✅ RESOLVED - Test now passes
 
-### 2. Unimplemented Regex Features
+### 2. CollapseSelection Fixed ✅
+
+**Issue**: `collapse_selection` was collapsing to selection start instead of cursor position
+**Cause**: Using `selection.start` instead of `selection.head()`
+**Solution**: Changed to collapse to `selection.head()` (cursor position)
+**Status**: ✅ RESOLVED - Now behaves like Helix
+
+### 3. RotateSelectionContents Improved ✅
+
+**Issue**: Content rotation wasn't moving selections with the content
+**Cause**: Only rotating content but keeping selections in original positions
+**Solution**: Implemented proper content rotation where selections follow the rotated content
+**Status**: ✅ RESOLVED for simple cases - Complex cases with multiple edits still need refinement
+
+### 4. Unimplemented Regex Features
 
 Several commands require regex input prompts which aren't implemented yet:
 - `SelectRegex` (`s`)
@@ -168,12 +209,13 @@ Several commands require regex input prompts which aren't implemented yet:
 - `KeepSelections` (`K`)
 - `RemoveSelections` (`Alt-K`)
 
-### 3. Complex Text Manipulation (✅ RESOLVED)
+### 5. Complex Text Manipulation (✅ MOSTLY RESOLVED)
 
 These features have been successfully implemented:
 - `AlignSelections` - ✅ Working with proper buffer manipulation
 - `TrimSelections` - ✅ Working with selection boundary adjustment
-- Selection content rotation - ✅ Working with text swapping between selections
+- `CollapseSelection` - ✅ Working with proper cursor position collapse
+- Selection content rotation - ✅ Working for simple cases, complex cases need refinement
 
 ## Development Notes
 
@@ -207,10 +249,13 @@ These features have been successfully implemented:
 ## Next Steps
 
 1. ~~**Fix FlipSelections**: Debug rope offset issue~~ ✅ COMPLETED
-2. **Implement regex prompts**: Add UI for regex input commands (`s`, `S`, `K`, `Alt-K`)
-3. **Enhanced testing**: Add more comprehensive test coverage for complex scenarios
-4. **Performance optimization**: Test with large numbers of selections
-5. **Integration testing**: Test interaction with other vim mode features
+2. ~~**Fix CollapseSelection**: Collapse to cursor position~~ ✅ COMPLETED  
+3. ~~**Fix RotateSelectionContents**: Make selections follow content~~ ✅ COMPLETED (simple cases)
+4. **Implement regex prompts**: Add UI for regex input commands (`s`, `S`, `K`, `Alt-K`)
+5. **Refine rotation content**: Fix complex cases with multiple selections and buffer edits
+6. **Enhanced testing**: Add more comprehensive test coverage for complex scenarios
+7. **Performance optimization**: Test with large numbers of selections
+8. **Integration testing**: Test interaction with other vim mode features
 
 ## Comparison with Existing Keymap
 

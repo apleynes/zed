@@ -116,9 +116,9 @@ pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
 
 impl Vim {
     fn select_regex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a simple implementation that could be enhanced with proper UI later
-        // This demonstrates the core functionality using word boundaries as an example
-        let pattern = r"\b\w+\b"; // Example: select all words
+        // For now, use a default pattern that selects all words
+        // TODO: Add UI prompt for regex input
+        let pattern = r"\b\w+\b"; // Select all word boundaries
 
         self.update_editor(window, cx, |_, editor, window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
@@ -152,22 +152,21 @@ impl Vim {
     }
 
     fn split_selection_on_regex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a simple implementation that splits on whitespace as an example
-        let pattern = r"\s+"; // Example: split on whitespace
-
+        // For now, use a default pattern that splits on whitespace
+        // TODO: Add UI prompt for regex input
+        let pattern = r"\s+"; // Split on whitespace
+        
         self.update_editor(window, cx, |_, editor, window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
             let selections = editor.selections.all_adjusted(cx);
-
+            
             if let Ok(regex) = Regex::new(pattern) {
                 let mut new_ranges = Vec::new();
-
+                
                 for selection in &selections {
-                    let text = buffer
-                        .text_for_range(selection.start..selection.end)
-                        .collect::<String>();
+                    let text = buffer.text_for_range(selection.start..selection.end).collect::<String>();
                     let selection_start_offset = buffer.point_to_offset(selection.start);
-
+                    
                     // Find split positions within this selection
                     let mut last_end = 0;
                     for match_result in regex.find_iter(&text) {
@@ -183,7 +182,7 @@ impl Vim {
                         }
                         last_end = match_result.end();
                     }
-
+                    
                     // Add remaining text after last match
                     if last_end < text.len() {
                         let start_offset = selection_start_offset + last_end;
@@ -195,7 +194,7 @@ impl Vim {
                         }
                     }
                 }
-
+                
                 if !new_ranges.is_empty() {
                     editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                         s.select_ranges(new_ranges);
@@ -631,8 +630,9 @@ impl Vim {
     }
 
     fn keep_selections(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a simple implementation that keeps selections containing letters
-        let pattern = r"[a-zA-Z]"; // Example: keep selections that contain letters
+        // For now, use a default pattern that keeps selections containing letters
+        // TODO: Add UI prompt for regex input
+        let pattern = r"[a-zA-Z]"; // Keep selections containing letters
 
         self.update_editor(window, cx, |_, editor, window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
@@ -669,8 +669,9 @@ impl Vim {
     }
 
     fn remove_selections(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // For now, use a simple implementation that removes selections containing only digits
-        let pattern = r"^\d+$"; // Example: remove selections that are only digits
+        // For now, use a default pattern that removes selections containing only digits
+        // TODO: Add UI prompt for regex input
+        let pattern = r"^\d+$"; // Remove selections that are only digits
 
         self.update_editor(window, cx, |_, editor, window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
@@ -815,6 +816,98 @@ mod test {
     //         Mode::HelixNormal,
     //     );
     // }
+
+    #[gpui::test]
+    async fn test_select_regex(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+        
+        // Test selecting all words within a selection using default pattern
+        cx.set_state(
+            indoc! {"
+            «hello world testˇ»
+            other line"},
+            Mode::HelixNormal,
+        );
+
+        cx.simulate_keystrokes("s");
+
+        // Should select each word within the original selection
+        cx.assert_state(
+            indoc! {"
+            «helloˇ» «worldˇ» «testˇ»
+            other line"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_split_selection_on_regex(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+        
+        // Test splitting selection on whitespace using default pattern
+        cx.set_state(
+            indoc! {"
+            «hello world testˇ»
+            other line"},
+            Mode::HelixNormal,
+        );
+
+        cx.simulate_keystrokes("shift-s");
+
+        // Should split on whitespace, creating selections for the non-whitespace parts
+        cx.assert_state(
+            indoc! {"
+            «helloˇ» «worldˇ» «testˇ»
+            other line"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_keep_selections(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+        
+        // Test keeping only selections that contain letters
+        cx.set_state(
+            indoc! {"
+            «helloˇ» «123ˇ» «worldˇ» «456ˇ»
+            other line"},
+            Mode::HelixNormal,
+        );
+
+        cx.simulate_keystrokes("shift-k");
+
+        // Should keep only selections containing letters (hello, world)
+        cx.assert_state(
+            indoc! {"
+            «helloˇ» 123 «worldˇ» 456
+            other line"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_remove_selections(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+        
+        // Test removing selections that are only digits
+        cx.set_state(
+            indoc! {"
+            «helloˇ» «123ˇ» «worldˇ» «456ˇ»
+            other line"},
+            Mode::HelixNormal,
+        );
+
+        cx.simulate_keystrokes("alt-k");
+
+        // Should remove selections that are only digits (123, 456)
+        cx.assert_state(
+            indoc! {"
+            «helloˇ» 123 «worldˇ» 456
+            other line"},
+            Mode::HelixNormal,
+        );
+    }
 
     #[gpui::test]
     async fn test_flip_selections(cx: &mut gpui::TestAppContext) {

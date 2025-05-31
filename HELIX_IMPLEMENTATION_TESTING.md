@@ -27,6 +27,7 @@ The following Helix selection commands have been implemented as native Zed actio
 - **AlignSelections** (`&`) - Align selections in columns ✅
 - **RotateSelectionContentsBackward** (`Alt-(`) - Rotate text between selections ✅
 - **RotateSelectionContentsForward** (`Alt-)`) - Rotate text between selections ✅
+- **FlipSelections** (`Alt-;`) - Flip selection cursor and anchor ✅
 
 ### TODO/Unimplemented Commands
 
@@ -113,7 +114,7 @@ Verify these key bindings work in `vim_mode == helix_normal` context:
 "&": "vim::AlignSelections",          // ✅ Working
 "_": "vim::TrimSelections",           // ✅ Working
 ";": "vim::CollapseSelection",        // ✅ Working
-"alt-;": "vim::FlipSelections",       // ⚠️ Has issues
+"alt-;": "vim::FlipSelections",       // ✅ Working
 ",": "vim::KeepPrimarySelection",     // ✅ Working
 "alt-,": "vim::RemovePrimarySelection", // ✅ Working
 "shift-c": "vim::CopySelectionOnNextLine", // ✅ Working
@@ -147,16 +148,17 @@ cargo test --package vim test_flip_selections
 cargo test --package vim selection
 ```
 
-Current status: **10 tests passing, 0 failing**
+Current status: **11 tests passing, 0 failing**
 
 ## Known Issues
 
-### 1. FlipSelections Rope Offset Error
+### 1. FlipSelections Fixed ✅
 
-**Issue**: `test_flip_selections` fails with rope offset assertion error
+**Issue**: `test_flip_selections` was failing with rope offset assertion error
 **Symptom**: `assertion failed: end_offset >= self.offset`
-**Cause**: `swap_head_tail()` may create invalid selection state
-**Status**: Needs investigation
+**Cause**: `swap_head_tail()` was creating invalid selection state
+**Solution**: Replaced `swap_head_tail()` with manual head/tail swapping
+**Status**: ✅ RESOLVED - Test now passes
 
 ### 2. Unimplemented Regex Features
 
@@ -198,13 +200,13 @@ These features have been successfully implemented:
 
 ### Implementation Quality
 
-- **Test Coverage**: 10 passing tests covering core selection operations
+- **Test Coverage**: 11 passing tests covering core selection operations
 - **Error Handling**: Graceful handling of edge cases (empty selections, single selections)
 - **Type Safety**: Proper use of Rust's type system and error handling
 
 ## Next Steps
 
-1. **Fix FlipSelections**: Debug rope offset issue (still has rope offset assertion error)
+1. ~~**Fix FlipSelections**: Debug rope offset issue~~ ✅ COMPLETED
 2. **Implement regex prompts**: Add UI for regex input commands (`s`, `S`, `K`, `Alt-K`)
 3. **Enhanced testing**: Add more comprehensive test coverage for complex scenarios
 4. **Performance optimization**: Test with large numbers of selections

@@ -328,7 +328,14 @@ impl Vim {
         self.update_editor(window, cx, |_, editor, window, cx| {
             editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                 s.move_with(|_, selection| {
-                    selection.swap_head_tail();
+                    // Manually flip head and tail to avoid rope offset issues
+                    let old_head = selection.head();
+                    let old_tail = selection.tail();
+                    let goal = selection.goal;
+                    
+                    // Set new head to old tail and new tail to old head
+                    selection.set_head(old_tail, goal);
+                    selection.set_tail(old_head, goal);
                 });
             });
         });
@@ -722,6 +729,20 @@ mod test {
         cx.simulate_keystrokes("alt-)");
 
         cx.assert_state("«bˇ» «aˇ»", Mode::HelixNormal);
+    }
+
+    #[gpui::test]
+    async fn test_flip_selections(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+        
+        // Test flipping selection direction
+        cx.set_state("The qu«ick ˇ»brown", Mode::HelixNormal);
+
+        // Flip selection: cursor and anchor should swap
+        cx.simulate_keystrokes("alt-;");
+
+        // After flip, the selection direction should be reversed
+        cx.assert_state("The qu«ˇick »brown", Mode::HelixNormal);
     }
 
 

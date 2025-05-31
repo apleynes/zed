@@ -441,14 +441,32 @@
       "space c": "editor::ToggleComments",
       "space y": "editor::Copy",
       "space p": "editor::Paste",
+      // Selection manipulation
+      "s": "vim::SelectRegex",
+      "shift-s": "vim::SplitSelectionOnRegex",
+      "alt-minus": "vim::MergeSelections",
+      "alt-_": "vim::MergeConsecutiveSelections",
+      "&": "vim::AlignSelections",
+      "_": "vim::TrimSelections",
+      ";": "vim::CollapseSelection",
+      "alt-;": "vim::FlipSelections",
+      ",": "vim::KeepPrimarySelection",
+      "alt-,": "vim::RemovePrimarySelection",
+      "shift-c": "vim::CopySelectionOnNextLine",
+      "alt-c": "vim::CopySelectionOnPrevLine",
+      "(": "vim::RotateSelectionsBackward",
+      ")": "vim::RotateSelectionsForward",
+      "alt-(": "vim::RotateSelectionContentsBackward",
+      "alt-)": "vim::RotateSelectionContentsForward",
+      "shift-k": "vim::KeepSelections",
+      "alt-k": "vim::RemoveSelections",
       // Match mode
       "m m": "vim::Matching",
       "m i w": ["workspace::SendKeystrokes", "v i w"],
       "shift-u": "editor::Redo",
       "ctrl-c": "editor::ToggleComments",
       "d": "vim::HelixDelete",
-      "c": "vim::Substitute",
-      "shift-c": "editor::AddSelectionBelow"
+      "c": "vim::Substitute"
     }
   },
   {

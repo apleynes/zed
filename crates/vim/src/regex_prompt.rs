@@ -1,9 +1,10 @@
-use editor::{Editor, EditorEvent};
+use editor::Editor;
 use futures::channel::oneshot;
 use gpui::{
     actions, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, Render,
     Window, prelude::*,
 };
+use regex::Regex;
 use ui::{prelude::*, Button, ButtonStyle, Label, v_flex};
 use workspace::{ModalView, Workspace};
 
@@ -25,19 +26,19 @@ impl RegexPrompt {
     ) -> Self {
         let editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Enter regex pattern...", cx);
+            editor.set_placeholder_text("Enter regex pattern (e.g., \\s+ for whitespace, \\w+ for words)...", cx);
             editor
         });
 
-        cx.subscribe(&editor, |_, _editor, _event: &EditorEvent, _cx| {
-            // Handle editor events if needed
-        })
-        .detach();
+        let focus_handle = cx.focus_handle();
+        
+        // Focus the editor when the prompt is created
+        window.focus(&focus_handle);
 
         Self {
             editor,
             prompt_message,
-            focus_handle: cx.focus_handle(),
+            focus_handle,
             tx: Some(tx),
         }
     }
@@ -62,7 +63,15 @@ impl RegexPrompt {
         let regex_pattern = if text.trim().is_empty() {
             None
         } else {
-            Some(text)
+            // Validate the regex before sending
+            match Regex::new(&text) {
+                Ok(_) => Some(text),
+                Err(_) => {
+                    // If regex is invalid, still send it and let the handler decide
+                    // This allows for partial patterns during real-time updates
+                    Some(text)
+                }
+            }
         };
 
         if let Some(tx) = self.tx.take() {
@@ -107,6 +116,11 @@ impl Render for RegexPrompt {
                     .child(
                         Label::new(self.prompt_message.clone())
                             .size(LabelSize::Default)
+                    )
+                    .child(
+                        Label::new("Tip: Use \\s for whitespace, \\w for word chars, \\d for digits")
+                            .size(LabelSize::Small)
+                            .color(Color::Muted)
                     )
                     .child(
                         self.editor.clone()

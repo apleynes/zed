@@ -171,7 +171,7 @@ impl Vim {
     }
 
     fn align_selections(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.update_editor(window, cx, |_, editor, window, cx| {
+        self.update_editor(window, cx, |_, editor, _window, cx| {
             let buffer = editor.buffer().read(cx).snapshot(cx);
             let selections = editor.selections.all_adjusted(cx);
             
@@ -473,14 +473,106 @@ impl Vim {
         });
     }
 
-    fn rotate_selection_contents_backward(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
-        // TODO: Implement selection content rotation - requires complex text manipulation
-        // This would rotate the text content between selections backward
+    fn rotate_selection_contents_backward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_editor(window, cx, |_, editor, window, cx| {
+            let buffer = editor.buffer().read(cx).snapshot(cx);
+            let selections = editor.selections.all_adjusted(cx);
+            
+            if selections.len() <= 1 {
+                return;
+            }
+            
+            // Collect the text content from each selection
+            let mut contents: Vec<String> = selections
+                .iter()
+                .map(|selection| {
+                    buffer.text_for_range(selection.start..selection.end).collect::<String>()
+                })
+                .collect();
+            
+            // Rotate backward: move first element to end
+            if !contents.is_empty() {
+                let first = contents.remove(0);
+                contents.push(first);
+            }
+            
+            // Apply the rotated content to each selection
+            let edits: Vec<_> = selections
+                .iter()
+                .zip(contents.iter())
+                .map(|(selection, content)| (selection.start..selection.end, content.clone()))
+                .collect();
+            
+            if !edits.is_empty() {
+                editor.edit(edits, cx);
+                
+                // Update selections to cover the new content
+                let new_buffer = editor.buffer().read(cx).snapshot(cx);
+                let mut new_ranges = Vec::new();
+                
+                for (selection, content) in selections.iter().zip(contents.iter()) {
+                    let start_point = selection.start;
+                    let end_offset = new_buffer.point_to_offset(start_point) + content.len();
+                    let end_point = new_buffer.offset_to_point(end_offset);
+                    new_ranges.push(start_point..end_point);
+                }
+                
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.select_ranges(new_ranges);
+                });
+            }
+        });
     }
 
-    fn rotate_selection_contents_forward(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
-        // TODO: Implement selection content rotation - requires complex text manipulation
-        // This would rotate the text content between selections forward
+    fn rotate_selection_contents_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_editor(window, cx, |_, editor, window, cx| {
+            let buffer = editor.buffer().read(cx).snapshot(cx);
+            let selections = editor.selections.all_adjusted(cx);
+            
+            if selections.len() <= 1 {
+                return;
+            }
+            
+            // Collect the text content from each selection
+            let mut contents: Vec<String> = selections
+                .iter()
+                .map(|selection| {
+                    buffer.text_for_range(selection.start..selection.end).collect::<String>()
+                })
+                .collect();
+            
+            // Rotate forward: move last element to front
+            if !contents.is_empty() {
+                let last = contents.pop().unwrap();
+                contents.insert(0, last);
+            }
+            
+            // Apply the rotated content to each selection
+            let edits: Vec<_> = selections
+                .iter()
+                .zip(contents.iter())
+                .map(|(selection, content)| (selection.start..selection.end, content.clone()))
+                .collect();
+            
+            if !edits.is_empty() {
+                editor.edit(edits, cx);
+                
+                // Update selections to cover the new content
+                let new_buffer = editor.buffer().read(cx).snapshot(cx);
+                let mut new_ranges = Vec::new();
+                
+                for (selection, content) in selections.iter().zip(contents.iter()) {
+                    let start_point = selection.start;
+                    let end_offset = new_buffer.point_to_offset(start_point) + content.len();
+                    let end_point = new_buffer.offset_to_point(end_offset);
+                    new_ranges.push(start_point..end_point);
+                }
+                
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.select_ranges(new_ranges);
+                });
+            }
+        });
     }
 
     fn keep_selections(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -595,6 +687,44 @@ mod test {
         // After trim, selection should exclude leading/trailing whitespace
         cx.assert_state("  «abcˇ»  ", Mode::HelixNormal);
     }
+
+    #[gpui::test]
+    async fn test_align_selections_simple(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+        
+        // Simple case: two selections at different column positions
+        cx.set_state(
+            indoc! {"
+            a«bcˇ»
+            hello«worldˇ»"},
+            Mode::HelixNormal,
+        );
+
+        cx.simulate_keystrokes("&");
+
+        // After alignment, both selections should start at the same column
+        cx.assert_state(
+            indoc! {"
+            a    «bcˇ»
+            hello«worldˇ»"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_rotate_selection_contents_simple(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+        
+        // Simple test with just two selections
+        cx.set_state("«aˇ» «bˇ»", Mode::HelixNormal);
+
+        // Rotate forward: a->b, b->a
+        cx.simulate_keystrokes("alt-)");
+
+        cx.assert_state("«bˇ» «aˇ»", Mode::HelixNormal);
+    }
+
+
 
     #[gpui::test]
     async fn test_collapse_selection(cx: &mut gpui::TestAppContext) {

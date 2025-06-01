@@ -1,9 +1,11 @@
-use editor::{Editor, ToPoint, scroll::Autoscroll};
+use editor::{Editor, ToPoint, ToOffset, scroll::Autoscroll, ClipboardSelection};
 use gpui::{Context, Window, actions};
 use language::{Point, SelectionGoal};
+use multi_buffer::MultiBufferRow;
 use regex::Regex;
 
-use crate::{Vim, regex_prompt::RegexPrompt};
+
+use crate::{Vim, regex_prompt::RegexPrompt, state::Register};
 use anyhow;
 
 actions!(
@@ -660,21 +662,170 @@ impl Vim {
     }
 
     fn helix_yank(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // If the selection is empty, select one character and yank it, otherwise, do the normal behavior
+        // CURSOR POSITIONING SEMANTICS DOCUMENTATION:
+        //
+        // Understanding cursor position vs visual highlight in text editors:
+        //
+        // 1. LOGICAL CURSOR POSITION:
+        //    - Cursor position is logically BETWEEN characters (insertion point)
+        //    - Position N means "between character N-1 and character N"
+        //    - This is where new text gets inserted
+        //
+        // 2. VISUAL CURSOR INDICATOR:
+        //    - Visual cursor appears ON a character (highlight box around character)
+        //    - Character at position N gets visually highlighted
+        //    - This is what users see as "the character the cursor is on"
+        //
+        // 3. PASTE BEHAVIOR CONFIRMS THIS:
+        //    - At "helloˇ world", cursor is between 'o' and ' ' (space)
+        //    - Visual highlight shows the space character
+        //    - Pasting "T" gives "helloT world" (inserts before highlighted char)
+        //    - This confirms cursor position N highlights character N
+        //
+        // 4. HELIX YANK BEHAVIOR:
+        //    - When cursor is at position N, yank the visually highlighted character
+        //    - This is the character AT position N (not before or after)
+        //    - For "helloˇ world", yank should select the space character
+        //
+        // 5. EDGE CASES:
+        //    - At end of buffer: select previous character (only option)
+        //    - At beginning of buffer: select character at position 0
+        //
+        // This semantic understanding is crucial for correct Helix yank behavior
+        // and matches user expectations based on visual feedback.
+
+        // If selections are cursor-only (empty ranges), select the character at each cursor and yank it
         self.update_editor(window, cx, |vim, editor, window, cx| {
             let selections = editor.selections.all_adjusted(cx);
-            if selections.is_empty() {
-                // editor.select_right(&editor::actions::SelectRight, window, cx);
-                // editor.select_left(&editor::actions::SelectLeft, window, cx);
+            let buffer = editor.buffer().read(cx).snapshot(cx);
+            
+            // Check if all selections are cursor-only (start == end)
+            let all_cursor_only = selections.iter().all(|s| s.start == s.end);
+            
+            if all_cursor_only && !selections.is_empty() {
                 let mut new_ranges = Vec::new();
-                new_ranges.push(0..2);
-                editor.change_selections(None, window, cx, |s| {
-                    // Adjust selection by one character to the right
-                    s.select_ranges(new_ranges);
-                });
+                
+                for selection in &selections {
+                    let cursor_offset = selection.start.to_offset(&buffer);
+                    let buffer_len = buffer.len();
+                    
+                    // Select the character at the cursor position
+                    if cursor_offset < buffer_len {
+                        // Select from cursor to next character
+                        let end_offset = std::cmp::min(cursor_offset + 1, buffer_len);
+                        new_ranges.push(cursor_offset..end_offset);
+                    } else if cursor_offset > 0 {
+                        // If at end of buffer, select the previous character
+                        new_ranges.push((cursor_offset - 1)..cursor_offset);
+                    }
+                }
+                
+                if !new_ranges.is_empty() {
+                    editor.change_selections(None, window, cx, |s| {
+                        s.select_ranges(new_ranges);
+                    });
+                }
             }
-            vim.yank_selections_content(editor, crate::motion::MotionKind::Inclusive, window, cx);
+            
+            // Use helix-specific yank that doesn't change modes
+            vim.helix_copy_selections(editor, window, cx);
         });
+    }
+
+    fn helix_copy_selections(
+        &mut self,
+        editor: &mut Editor,
+        window: &mut Window,
+        cx: &mut Context<Editor>,
+    ) {
+        // Helix-specific copy operation that preserves mode
+        // Based on copy_ranges but without mode-changing logic
+        let selections: Vec<_> = editor
+            .selections
+            .all_adjusted(cx)
+            .iter()
+            .map(|s| s.range())
+            .collect();
+            
+        if selections.is_empty() {
+            return;
+        }
+
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        let kind = crate::motion::MotionKind::Inclusive;
+        
+        // Set marks [ and ]
+        self.set_mark(
+            "[".to_string(),
+            selections
+                .iter()
+                .map(|s| buffer.anchor_before(s.start))
+                .collect(),
+            editor.buffer(),
+            window,
+            cx,
+        );
+        self.set_mark(
+            "]".to_string(),
+            selections
+                .iter()
+                .map(|s| buffer.anchor_after(s.end))
+                .collect(),
+            editor.buffer(),
+            window,
+            cx,
+        );
+
+        // Build text and clipboard selections
+        let mut text = String::new();
+        let mut clipboard_selections = Vec::with_capacity(selections.len());
+        let mut ranges_to_highlight = Vec::new();
+
+        let mut is_first = true;
+        for selection in selections.iter() {
+            let start = selection.start;
+            let end = selection.end;
+            if is_first {
+                is_first = false;
+            } else {
+                text.push('\n');
+            }
+            let initial_len = text.len();
+
+            let start_anchor = buffer.anchor_after(start);
+            let end_anchor = buffer.anchor_before(end);
+            ranges_to_highlight.push(start_anchor..end_anchor);
+
+            for chunk in buffer.text_for_range(start..end) {
+                text.push_str(chunk);
+            }
+            if kind.linewise() {
+                text.push('\n');
+            }
+            clipboard_selections.push(ClipboardSelection {
+                len: text.len() - initial_len,
+                is_entire_line: kind.linewise(),
+                first_line_indent: buffer.indent_size_for_line(MultiBufferRow(start.row)).len,
+            });
+        }
+
+        // Write to registers
+        let selected_register = self.selected_register.take();
+        Vim::update_globals(cx, |globals, cx| {
+            globals.write_registers(
+                Register {
+                    text: text.into(),
+                    clipboard_selections: Some(clipboard_selections),
+                },
+                selected_register,
+                true, // is_yank
+                kind,
+                cx,
+            )
+        });
+
+        // Note: Highlight on yank functionality omitted to avoid accessing private types
+        // This preserves the core yank functionality without visual feedback
     }
 
     fn apply_regex_selection(
@@ -1231,6 +1382,195 @@ mod test {
         );
     }
 
+    #[gpui::test]
+    async fn test_cursor_visual_position_semantics(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // CURSOR POSITIONING SEMANTICS CLARIFICATION:
+        // 
+        // In text editors including Zed/Vim:
+        // - Cursor position is logically BETWEEN characters (insertion point)
+        // - Visual indicator shows cursor ON a character (highlight box around character)  
+        // - The highlighted character is the one AT the cursor position (position N highlights char N)
+        // - When "helloˇ world" is displayed, the space character is visually highlighted
+        // - Vim paste behavior: pasting "T" at "helloˇ world" gives "helloT world" (inserts before highlighted char)
+        //
+        // This means: cursor at position N visually highlights character N
+        // Therefore: yank at cursor should select the visually highlighted character
+        
+        // Document this behavior for reference
+        cx.set_state("abcˇdef", Mode::HelixNormal);
+        // Note: cursor at position between 'c' and 'd' visually highlights 'd'
+        // Yank should select 'd' (the highlighted character at cursor position)
+    }
+
+    #[gpui::test]
+    async fn test_helix_yank_cursor(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // Test yanking character at cursor position
+        // Cursor at helloˇ visually highlights the space character
+        // Yank should select this highlighted space
+        cx.set_state(
+            indoc! {"
+            helloˇ world
+            test line"},
+            Mode::HelixNormal,
+        );
+
+        // Call helix yank directly
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.helix_yank(window, cx);
+            });
+        });
+
+        // Should select the space character that is visually highlighted at cursor
+        cx.assert_state(
+            indoc! {"
+            hello« ˇ»world
+            test line"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_helix_yank_multiple_cursors(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // Test yanking with multiple cursor positions
+        cx.set_state(
+            indoc! {"
+            heˇllo woˇrld
+            teˇst line"},
+            Mode::HelixNormal,
+        );
+
+        // Call helix yank directly
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.helix_yank(window, cx);
+            });
+        });
+
+        // Verify characters at each cursor were selected
+        cx.assert_state(
+            indoc! {"
+            he«lˇ»lo wo«rˇ»ld
+            te«sˇ»t line"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_helix_yank_end_of_buffer(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // Test yanking at end of buffer (should select previous character)
+        cx.set_state(
+            indoc! {"
+            hello worldˇ"},
+            Mode::HelixNormal,
+        );
+
+        // Call helix yank directly
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.helix_yank(window, cx);
+            });
+        });
+
+        // At end of buffer, should select the previous character
+        cx.assert_state(
+            indoc! {"
+            hello worl«dˇ»"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_helix_yank_with_existing_selection(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // Test that helix yank with existing selection just yanks the selection
+        cx.set_state(
+            indoc! {"
+            The qu«ick ˇ»brown
+            fox jumps over"},
+            Mode::HelixNormal,
+        );
+
+        // Call helix yank directly
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.helix_yank(window, cx);
+            });
+        });
+
+        // Selection should remain unchanged (since it wasn't cursor-only)
+        cx.assert_state(
+            indoc! {"
+            The qu«ick ˇ»brown
+            fox jumps over"},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_helix_yank_integration(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        cx.set_state("abcˇdef", Mode::HelixNormal);
+
+        // Check mode before yank
+        assert_eq!(cx.mode(), Mode::HelixNormal);
+
+        // Call helix yank via keymap
+        cx.simulate_keystrokes("y");
+
+        // Check mode after yank - this is where the test fails
+        assert_eq!(cx.mode(), Mode::HelixNormal, "Mode should remain HelixNormal after yank");
+    }
+
+    #[gpui::test]
+    async fn test_helix_yank_vs_vim_yank_behavior(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // Document the difference between helix yank and vim yank behavior
+        // Helix: y immediately yanks current character/selection
+        // Vim: y enters operator mode, needs motion (like yl for one character)
+
+        cx.set_state("testˇtext", Mode::HelixNormal);
+
+        // In helix mode, 'y' should immediately yank the character at cursor
+        cx.simulate_keystrokes("y");
+
+        // Should select the 't' character that was visually highlighted and preserve mode
+        cx.assert_state("test«tˇ»ext", Mode::HelixNormal);
+    }
+
+    #[gpui::test]
+    async fn test_helix_yank_simple_mode_preservation(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // Very simple test: just check that mode is preserved after helix_yank
+        cx.set_state("abcˇdef", Mode::HelixNormal);
+
+        // Call helix yank directly and immediately check mode
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.helix_yank(window, cx);
+            });
+        });
+
+        // Check mode outside the vim entity update
+        assert_eq!(cx.mode(), Mode::HelixNormal, "Mode should remain HelixNormal after helix yank");
+    }
     #[gpui::test]
     async fn test_merge_selections(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;

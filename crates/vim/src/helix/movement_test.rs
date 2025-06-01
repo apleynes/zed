@@ -39,47 +39,49 @@ mod test {
             jumps over the lazy dog
         "}, Mode::HelixNormal);
         
-        // Test word movements
+        // Test word movements - these CREATE selections in normal mode (helix behavior)
         cx.dispatch_action(MoveNextWordStart);
         cx.assert_state(indoc! {"
-            The quick ˇbrown fox
+            The qu«ick ˇ»brown fox
             jumps over the lazy dog
         "}, Mode::HelixNormal);
         
-        cx.dispatch_action(MovePrevWordStart);
-        cx.assert_state(indoc! {"
-            The ˇquick brown fox
-            jumps over the lazy dog
-        "}, Mode::HelixNormal);
+        // Reset cursor position for next test
+        cx.set_state("The quˇick brown fox", Mode::HelixNormal);
         
         cx.dispatch_action(MoveNextWordEnd);
-        cx.assert_state(indoc! {"
-            The quicˇk brown fox
-            jumps over the lazy dog
-        "}, Mode::HelixNormal);
+        cx.assert_state("The qu«ickˇ» brown fox", Mode::HelixNormal);
+        
+        // Reset cursor position for previous word test
+        cx.set_state("The quick ˇbrown fox", Mode::HelixNormal);
+        
+        cx.dispatch_action(MovePrevWordStart);
+        cx.assert_state("The «ˇquick »brown fox", Mode::HelixNormal);
     }
 
     #[gpui::test]
     async fn test_helix_select_mode_movements(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
         
+        // Start with a small selection in select mode
         cx.set_state(indoc! {"
-            The quˇick brown
-            fox jumps over
-            the lazy dog
-        "}, Mode::HelixSelect);
-        
-        // Test selection extension
-        cx.dispatch_action(ExtendCharRight);
-        cx.assert_state(indoc! {"
             The qu«iˇ»ck brown
             fox jumps over
             the lazy dog
         "}, Mode::HelixSelect);
         
-        cx.dispatch_action(ExtendCharRight);
+        // Test basic movement extension (h,j,k,l extend in select mode)
+        cx.dispatch_action(MoveCharRight);
         cx.assert_state(indoc! {"
             The qu«icˇ»k brown
+            fox jumps over
+            the lazy dog
+        "}, Mode::HelixSelect);
+        
+        // Test word movement extension (also extends in select mode)
+        cx.dispatch_action(MoveNextWordStart);
+        cx.assert_state(indoc! {"
+            The qu«ick ˇ»brown
             fox jumps over
             the lazy dog
         "}, Mode::HelixSelect);
@@ -108,29 +110,27 @@ mod test {
             dog sits quietly
         "}, Mode::HelixNormal);
         
-        // Test start of line
+        // Test start of line - creates selection in normal mode
         cx.dispatch_action(MoveStartOfLine);
         cx.assert_state(indoc! {"
-            ˇThe quick brown fox
+            «ˇThe qu»ick brown fox
             jumps over the lazy
             dog sits quietly
         "}, Mode::HelixNormal);
         
-        // Test end of line
+        // Reset for end of line test
+        cx.set_state("The quˇick brown fox", Mode::HelixNormal);
+        
+        // Test end of line - creates selection in normal mode
         cx.dispatch_action(MoveEndOfLine);
-        cx.assert_state(indoc! {"
-            The quick brown foˇx
-            jumps over the lazy
-            dog sits quietly
-        "}, Mode::HelixNormal);
+        cx.assert_state("The qu«ick brown foxˇ»", Mode::HelixNormal);
         
-        // Test first non-whitespace
+        // Reset for first non-whitespace test  
+        cx.set_state("The quˇick brown fox", Mode::HelixNormal);
+        
+        // Test first non-whitespace - creates selection in normal mode
         cx.dispatch_action(MoveFirstNonWhitespace);
-        cx.assert_state(indoc! {"
-            ˇThe quick brown fox
-            jumps over the lazy
-            dog sits quietly
-        "}, Mode::HelixNormal);
+        cx.assert_state("«ˇThe qu»ick brown fox", Mode::HelixNormal);
     }
 
     #[gpui::test]
@@ -144,22 +144,30 @@ mod test {
             Last line here
         "}, Mode::HelixNormal);
         
-        // Test goto start of document
+        // Test goto start of document - creates selection in normal mode
         cx.dispatch_action(MoveStartOfDocument);
         cx.assert_state(indoc! {"
-            ˇFirst line here
-            The quick brown fox
+            «ˇFirst line here
+            The qu»ick brown fox
             jumps over the lazy
             Last line here
         "}, Mode::HelixNormal);
         
-        // Test goto end of document
+        // Reset for end of document test
+        cx.set_state(indoc! {"
+            First line here
+            The quˇick brown fox
+            jumps over the lazy
+            Last line here
+        "}, Mode::HelixNormal);
+        
+        // Test goto end of document - creates selection in normal mode
         cx.dispatch_action(MoveEndOfDocument);
         cx.assert_state(indoc! {"
             First line here
-            The quick brown fox
+            The qu«ick brown fox
             jumps over the lazy
-            Last line herˇe
+            Last line hereˇ»
         "}, Mode::HelixNormal);
     }
 
@@ -186,13 +194,21 @@ mod test {
         // Basic test that helix movement system is working
         cx.set_state("ˇhello world", Mode::HelixNormal);
         
+        // h,j,k,l movements are cursor-only in normal mode
         cx.dispatch_action(MoveCharRight);
         cx.assert_state("hˇello world", Mode::HelixNormal);
         
+        // Word movements create selections in normal mode
+        cx.dispatch_action(MoveNextWordStart);
+        cx.assert_state("h«ello ˇ»world", Mode::HelixNormal);
+        
+        // Enter select mode
+        cx.set_state("hˇello world", Mode::HelixNormal);
         cx.dispatch_action(EnterSelectMode); 
         cx.assert_state("hˇello world", Mode::HelixSelect);
         
-        cx.dispatch_action(ExtendCharRight);
+        // In select mode, even basic movements extend selections
+        cx.dispatch_action(MoveCharRight);
         cx.assert_state("h«eˇ»llo world", Mode::HelixSelect);
     }
 }

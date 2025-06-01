@@ -358,7 +358,7 @@
   {
     "context": "vim_mode == helix_normal && !menu",
     "bindings": {
-      // Basic helix movements (cursor-only, no selection extension)
+      // Helix movements: h,j,k,l are cursor-only; w,b,e,etc. create selections
       "h": "helix_movement::MoveCharLeft",
       "j": "helix_movement::MoveLineDown", 
       "k": "helix_movement::MoveLineUp",
@@ -494,19 +494,19 @@
   {
     "context": "vim_mode == helix_select && !menu",
     "bindings": {
-      // Selection extending movements
-      "h": "helix_movement::ExtendCharLeft",
-      "j": "helix_movement::ExtendLineDown", 
-      "k": "helix_movement::ExtendLineUp",
-      "l": "helix_movement::ExtendCharRight",
-      "w": "helix_movement::ExtendNextWordStart",
-      "b": "helix_movement::ExtendPrevWordStart",
-      "e": "helix_movement::ExtendNextWordEnd",
-      "^": "helix_movement::ExtendFirstNonWhitespace",
-      "$": "helix_movement::ExtendEndOfLine",
-      "0": "helix_movement::ExtendStartOfLine",
-      "g g": "helix_movement::ExtendStartOfDocument",
-      "g e": "helix_movement::ExtendEndOfDocument",
+      // Same movements as normal mode, but automatically extend selections
+      "h": "helix_movement::MoveCharLeft",
+      "j": "helix_movement::MoveLineDown", 
+      "k": "helix_movement::MoveLineUp",
+      "l": "helix_movement::MoveCharRight",
+      "w": "helix_movement::MoveNextWordStart",
+      "b": "helix_movement::MovePrevWordStart",
+      "e": "helix_movement::MoveNextWordEnd",
+      "^": "helix_movement::MoveFirstNonWhitespace",
+      "$": "helix_movement::MoveEndOfLine",
+      "0": "helix_movement::MoveStartOfLine",
+      "g g": "helix_movement::MoveStartOfDocument",
+      "g e": "helix_movement::MoveEndOfDocument",
       
       // Mode switching
       "v": "helix_mode::ExitSelectMode",

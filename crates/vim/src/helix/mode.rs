@@ -1,5 +1,5 @@
 use crate::{state::Mode, Vim};
-use editor::{Editor, DisplayPoint};
+use editor::Editor;
 use gpui::{actions, Context, Window};
 
 actions!(

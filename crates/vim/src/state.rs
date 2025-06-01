@@ -65,8 +65,8 @@ impl Display for Mode {
 impl Mode {
     pub fn is_visual(&self) -> bool {
         match self {
-            Self::Visual | Self::VisualLine | Self::VisualBlock | Self::HelixSelect => true,
-            Self::Normal | Self::Insert | Self::Replace | Self::HelixNormal => false,
+            Self::Visual | Self::VisualLine | Self::VisualBlock => true,
+            Self::Normal | Self::Insert | Self::Replace | Self::HelixNormal | Self::HelixSelect => false,
         }
     }
 }

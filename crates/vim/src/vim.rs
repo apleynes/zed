@@ -9,6 +9,7 @@ mod digraph;
 mod helix;
 mod indent;
 mod insert;
+mod match_mode;
 mod mode_indicator;
 mod motion;
 mod normal;
@@ -27,6 +28,7 @@ use editor::{
     Anchor, Bias, Editor, EditorEvent, EditorSettings, HideMouseCursorOrigin, ToPoint,
     movement::{self, FindRange},
 };
+use std::time::Instant;
 use gpui::{
     Action, App, AppContext, Axis, Context, Entity, EventEmitter, KeyContext, KeystrokeEvent,
     Render, Subscription, Task, WeakEntity, Window, actions, impl_actions,
@@ -337,6 +339,17 @@ pub(crate) struct Vim {
 
     last_command: Option<String>,
     running_command: Option<Task<()>>,
+    
+    // Match mode state
+    match_mode_active: bool,
+    match_mode_timeout: Option<Instant>,
+    match_mode_awaiting_surround_char: bool,
+    match_mode_awaiting_delete_char: bool,
+    match_mode_awaiting_replace_from: bool,
+    match_mode_awaiting_replace_to: bool,
+    match_mode_replace_from_char: Option<char>,
+    match_mode_awaiting_text_object: Option<bool>, // Some(true) = around, Some(false) = inside
+    
     _subscriptions: Vec<Subscription>,
 }
 
@@ -380,6 +393,16 @@ impl Vim {
 
             last_command: None,
             running_command: None,
+            
+            // Match mode state
+            match_mode_active: false,
+            match_mode_timeout: None,
+            match_mode_awaiting_surround_char: false,
+            match_mode_awaiting_delete_char: false,
+            match_mode_awaiting_replace_from: false,
+            match_mode_awaiting_replace_to: false,
+            match_mode_replace_from_char: None,
+            match_mode_awaiting_text_object: None,
 
             editor: editor.downgrade(),
             _subscriptions: vec![
@@ -702,6 +725,7 @@ impl Vim {
             normal::register(editor, cx);
             insert::register(editor, cx);
             helix::register(editor, cx);
+            match_mode::register(editor, cx);
             motion::register(editor, cx);
             command::register(editor, cx);
             replace::register(editor, cx);
@@ -784,6 +808,20 @@ impl Vim {
             }
             self.switch_mode(Mode::Insert, false, window, cx)
         }
+        
+        // Check match mode timeout
+        self.check_match_mode_timeout(window, cx);
+        
+        // Handle escape key in match mode
+        if self.match_mode_active {
+            if let Some(action) = keystroke_event.action.as_ref() {
+                if action.name() == "editor::Cancel" {
+                    self.exit_match_mode(window, cx);
+                    return;
+                }
+            }
+        }
+        
         if let Some(action) = keystroke_event.action.as_ref() {
             // Keystroke is handled by the vim system, so continue forward
             if action.name().starts_with("vim::") {
@@ -1503,6 +1541,11 @@ impl Vim {
 
     fn input_ignored(&mut self, text: Arc<str>, window: &mut Window, cx: &mut Context<Self>) {
         if text.is_empty() {
+            return;
+        }
+
+        // Handle match mode input
+        if self.handle_match_mode_input(&text, window, cx) {
             return;
         }
 

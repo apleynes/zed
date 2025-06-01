@@ -664,9 +664,14 @@ impl Vim {
         self.update_editor(window, cx, |vim, editor, window, cx| {
             let selections = editor.selections.all_adjusted(cx);
             if selections.is_empty() {
-                editor.select_right(&editor::actions::SelectRight, window, cx);
-                editor.select_left(&editor::actions::SelectLeft, window, cx);
-                // editor.
+                // editor.select_right(&editor::actions::SelectRight, window, cx);
+                // editor.select_left(&editor::actions::SelectLeft, window, cx);
+                let mut new_ranges = Vec::new();
+                new_ranges.push(0..2);
+                editor.change_selections(None, window, cx, |s| {
+                    // Adjust selection by one character to the right
+                    s.select_ranges(new_ranges);
+                });
             }
             vim.yank_selections_content(editor, crate::motion::MotionKind::Inclusive, window, cx);
         });

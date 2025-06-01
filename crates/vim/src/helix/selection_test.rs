@@ -140,6 +140,7 @@ async fn test_align_selections_basic(cx: &mut gpui::TestAppContext) {
         «mid       ˇ»"}, Mode::HelixNormal);
 }
 
+
 #[gpui::test]
 async fn test_copy_selection_on_next_line(cx: &mut gpui::TestAppContext) {
     let mut cx = VimTestContext::new(cx, true).await;

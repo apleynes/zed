@@ -2,297 +2,218 @@
 
 ## Executive Summary
 
-After analyzing the Helix codebase, it's clear that implementing Helix features in Zed requires a fundamental paradigm shift from vim's action+motion model to Helix's selection+action model. The current approach of extending vim mode actions is fundamentally flawed because vim actions are designed to complete operations and return to normal mode, while Helix operations work on existing selections without mode changes.
+After analyzing the Helix codebase, the fundamental insight is that Helix implements a **selection + action** paradigm that is **separate from cursor movement**. Basic cursor movements work exactly like vim, but Helix provides explicit selection operations that create multi-selections for powerful editing operations.
 
-## Core Architectural Differences
+## Corrected Understanding of Helix Behavior
 
-### Vim vs Helix Mental Models
+### Fundamental Architecture
 
-**Vim (Action + Motion/Object)**:
-- Commands like `dw` (delete word) combine an action with a motion
-- Actions typically change modes or complete operations
-- Operators wait for motions/objects to complete the command
-- Mode switching is frequent and intentional
+**Helix is NOT "always selecting"** - this is a common misunderstanding. Instead:
 
-**Helix (Selection + Action)**:
-- First make selections (e.g., `w` to select word)
-- Then apply actions (e.g., `d` to delete selections)
-- All operations work on existing selections
-- No mode changes during normal editing operations
-- Multiple selections are the default state
+1. **Normal cursor movement** works exactly like vim - moves cursor without creating selections
+2. **Explicit selection operations** create selections that can then be acted upon
+3. **Select mode** (`v`) makes movements extend selections (like vim visual mode)
+4. **Selection + action** paradigm applies only when selections are explicitly created
 
-### Key Implementation Insight
+### Helix vs Vim Comparison
 
-Helix's "match mode" (`m`) is **not a persistent mode** - it's a **sub-keymap** that handles the next keystroke and returns to normal operation. This is implemented using Helix's keymap trie system:
+**Vim**: `action + motion/object` (e.g., `dw` = delete word)
+**Helix**: `selection + action` (e.g., `w` selects word, then `d` deletes all selections)
 
-```rust
-"m" => { "Match"
-    "m" => match_brackets,
-    "s" => surround_add,
-    "r" => surround_replace,
-    "d" => surround_delete,
-    "a" => select_textobject_around,
-    "i" => select_textobject_inner,
-},
-```
+**Key Difference**: Helix separates the selection creation from the action, allowing for:
+- Multiple selections created before acting
+- Visual feedback of what will be affected
+- Reusable selections for multiple operations
 
-## Helix Feature Analysis
-
-### 1. Selection Manipulation
-
-**Helix Implementation Patterns**:
-- All functions operate on `doc.selection(view.id)` directly
-- Use `doc.set_selection(view.id, new_selection)` to update
-- Transform selections using `selection.transform(|range| ...)`
-- No mode switching - just selection state changes
-
-**Key Functions Analyzed**:
+### Helix Movement Behavior (from codebase analysis)
 
 ```rust
-// Simple selection collapse
-fn collapse_selection(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let pos = range.cursor(text);
-        Range::new(pos, pos)
-    });
-    doc.set_selection(view.id, selection);
+// Basic movements use Movement::Move (like vim)
+fn move_char_left(cx: &mut Context) {
+    move_impl(cx, move_horizontally, Direction::Backward, Movement::Move)
 }
 
-// Flip selection direction
-fn flip_selections(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let selection = doc.selection(view.id).clone().transform(|range| range.flip());
-    doc.set_selection(view.id, selection);
-}
-
-// Merge all selections
-fn merge_selections(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let selection = doc.selection(view.id).clone().merge_ranges();
-    doc.set_selection(view.id, selection);
+// Select mode movements use Movement::Extend  
+fn extend_char_left(cx: &mut Context) {
+    move_impl(cx, move_horizontally, Direction::Backward, Movement::Extend)
 }
 ```
 
-### 2. Content Rotation
+### Cursor Position Logic
 
-**Advanced Selection Content Manipulation**:
+From `helix-core/src/selection.rs`:
 
 ```rust
-fn reorder_selection_contents(cx: &mut Context, strategy: ReorderStrategy) {
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text().slice(..);
-    let selection = doc.selection(view.id);
-    
-    // Extract content from each selection
-    let mut fragments: Vec<_> = selection
-        .slices(text)
-        .map(|fragment| fragment.chunks().collect())
-        .collect();
-    
-    // Reorder the content
-    for chunk in fragments.chunks_mut(group) {
-        match strategy {
-            ReorderStrategy::RotateForward => chunk.rotate_right(1),
-            ReorderStrategy::RotateBackward => chunk.rotate_left(1),
-            ReorderStrategy::Reverse => chunk.reverse(),
-        };
+/// Gets the left-side position of the block cursor.
+pub fn cursor(self, text: RopeSlice) -> usize {
+    if self.head > self.anchor {
+        prev_grapheme_boundary(text, self.head)
+    } else {
+        self.head
     }
-    
-    // Apply changes back to document
-    let transaction = Transaction::change(
-        doc.text(),
-        selection.ranges().iter().zip(fragments)
-            .map(|(range, fragment)| (range.from(), range.to(), Some(fragment))),
-    );
-    doc.apply(&transaction, view.id);
 }
 ```
 
-### 3. Text Objects and Matching
+**Key insight**: Cursor is at the **left edge** of selection, not always at head.
 
-**Match Brackets Implementation**:
+## Helix Mode System
+
+From `helix-view/src/document.rs`:
 
 ```rust
-fn match_brackets(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let text = doc.text();
-    let text_slice = text.slice(..);
-    
-    let selection = doc.selection(view.id).clone().transform(|range| {
-        let pos = range.cursor(text_slice);
-        if let Some(matched_pos) = match_brackets::find_matching_bracket_fuzzy(
-            syntax, text.slice(..), pos
-        ) {
-            Range::new(range.anchor, matched_pos).with_direction(range.direction())
-        } else {
-            range
-        }
-    });
-    
-    doc.set_selection(view.id, selection);
+pub enum Mode {
+    Normal = 0,    // Cursor movements, no selection extension
+    Select = 1,    // Movements extend selections 
+    Insert = 2,    // Text insertion
 }
 ```
 
-**Surround Operations**:
-- Use `surround::get_surround_pos()` to find surround positions
-- Apply `Transaction::change()` to modify text
-- Update selections to match the new text structure
-- No mode changes, just direct text and selection manipulation
-
-### 4. Shell Integration
-
-**Shell Command Pattern**:
-
-```rust
-fn shell_pipe(cx: &mut Context) {
-    shell_prompt(cx, "pipe:".into(), ShellBehavior::Replace);
-}
-
-fn shell_prompt(cx: &mut Context, prompt: Cow<'static, str>, behavior: ShellBehavior) {
-    ui::prompt(cx, prompt, Some('|'), ui::completers::shell, move |cx, input, event| {
-        if event != PromptEvent::Validate { return; }
-        shell(cx, input, &behavior);
-    });
-}
-```
-
-**Shell Execution**:
-- Operates on each selection independently
-- Uses async shell execution with proper error handling
-- Replaces/inserts/appends based on behavior
-- Maintains selection structure after operations
-
-### 5. Regex Selection Operations
-
-**Select Regex Pattern**:
-
-```rust
-fn select_regex(cx: &mut Context) {
-    ui::regex_prompt(cx, "select:".into(), Some(reg), ui::completers::none, 
-        move |cx, regex, event| {
-            let (view, doc) = current!(cx.editor);
-            let text = doc.text().slice(..);
-            
-            let selection = doc.selection(view.id);
-            let mut new_ranges = Vec::new();
-            
-            for range in selection.iter() {
-                let fragment = range.fragment(text);
-                for mat in regex.find_iter(&fragment) {
-                    let start = range.from() + mat.start();
-                    let end = range.from() + mat.end();
-                    new_ranges.push(Range::new(start, end));
-                }
-            }
-            
-            if !new_ranges.is_empty() {
-                doc.set_selection(view.id, Selection::new(new_ranges, 0));
-            }
-        }
-    );
-}
-```
+**Mode Switching**:
+- `v` enters Select mode (like vim visual)
+- `Esc` exits back to Normal mode
+- Movements in Select mode use `Movement::Extend`
+- Movements in Normal mode use `Movement::Move`
 
 ## Implementation Strategy for Zed
 
-### 1. Abandon Vim Action Extension Approach
+### Directory Structure
 
-**Problem with Current Approach**:
-- Vim actions are designed to complete and return to normal mode
-- Trying to preserve `HelixNormal` mode while using vim infrastructure causes conflicts
-- Vim's `observe_keystrokes` and mode switching logic interferes
-
-**Solution**:
-- Create pure selection-manipulation functions that work directly with Zed's editor
-- Bypass vim mode infrastructure entirely for Helix operations
-- Use Zed's native selection system without vim action patterns
-
-### 2. Implement Sub-Keymap System
-
-**Instead of Persistent Match Mode**:
-
-```rust
-// In vim.json keymap
-{
-  "context": "vim_mode == helix_normal && !menu",
-  "bindings": {
-    "m": {
-      "m": "helix::MatchBrackets",
-      "s": "helix::SurroundAdd", 
-      "r": "helix::SurroundReplace",
-      "d": "helix::SurroundDelete",
-      "a": "helix::TextObjectAround",
-      "i": "helix::TextObjectInside"
-    }
-  }
-}
-```
-
-**Implementation Pattern**:
-
-```rust
-// Direct selection manipulation without vim infrastructure
-impl Vim {
-    pub fn helix_match_brackets(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                s.move_with(|map, selection| {
-                    let pos = selection.head();
-                    if let Some(matched_pos) = find_matching_bracket(map, pos) {
-                        selection.collapse_to(matched_pos);
-                    }
-                });
-            });
-        });
-    }
-}
-```
-
-### 3. Create Helix-Specific Module Structure
-
-**Recommended File Organization**:
+Create a modular helix subsystem within vim crate:
 
 ```
 zed/crates/vim/src/
 ├── helix/
 │   ├── mod.rs              # Public interface and registration
-│   ├── selections.rs       # Selection manipulation commands
+│   ├── movement.rs         # Helix-style movement commands (reuse vim motions)
+│   ├── selection.rs        # Selection manipulation commands
 │   ├── text_objects.rs     # Text object selection
-│   ├── surrounds.rs        # Surround operations
+│   ├── match_mode.rs       # Match mode operations (surround, brackets)
+│   ├── goto_mode.rs        # Goto mode operations  
+│   ├── space_mode.rs       # Space mode operations
+│   ├── view_mode.rs        # View mode operations
 │   ├── shell.rs           # Shell integration
-│   └── movement.rs        # Helix-style movement commands
-└── vim.rs                 # Main vim integration
+│   └── search.rs          # Search and regex operations
+├── vim.rs                 # Main vim integration
+└── ...                    # Existing vim files
 ```
 
-### 4. Direct Editor Integration Pattern
+### Core Implementation Principles
 
-**Core Implementation Pattern**:
+#### 1. Reuse Vim Infrastructure
+
+**What to reuse**:
+- All basic motion functions (`move_char_left`, `move_next_word_start`, etc.)
+- Text object detection logic
+- Search and regex functionality
+- Most of the editor interaction patterns
+
+**What to modify**:
+- Add `Movement::Extend` variants for selection mode
+- Create explicit selection manipulation operations
+- Add helix-specific minor mode system
+
+#### 2. Separate Cursor Movement from Selection
 
 ```rust
-pub mod helix {
-    use editor::{Editor, scroll::Autoscroll};
-    use gpui::{Window, Context, actions};
-    
-    actions!(helix, [
-        CollapseSelection,
-        FlipSelections,
-        MergeSelections,
-        MatchBrackets,
-        SurroundAdd,
-        // ... other commands
-    ]);
-    
-    pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
-        // Register actions that work directly with editor selections
-        Vim::action(editor, cx, |vim, _: &CollapseSelection, window, cx| {
-            vim.update_editor(window, cx, |_, editor, window, cx| {
-                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                    s.move_with(|map, selection| {
-                        let cursor = selection.head();
-                        selection.collapse_to(cursor);
-                    });
+// Normal helix movement (reuses vim motion)
+fn helix_move_char_left(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>) {
+    // Use existing vim motion but without selection extension
+    vim_move_char_left(vim, window, cx); // Reuse vim implementation
+}
+
+// Helix select mode movement (extends selection)
+fn helix_extend_char_left(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>) {
+    vim.update_editor(window, cx, |_, editor, window, cx| {
+        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            s.move_with(|map, selection| {
+                // Extend selection left
+                let new_pos = movement::move_left(map, selection.head());
+                selection.set_head(new_pos);
+            });
+        });
+    });
+}
+```
+
+#### 3. Selection Manipulation Operations
+
+```rust
+// Explicit selection operations (separate from movement)
+actions!(helix, [
+    SelectWord,              // w - select current word
+    SelectRegex,             // s - select regex matches
+    SplitSelectionOnRegex,   // S - split selections on regex
+    CollapseSelection,       // ; - collapse to cursor
+    FlipSelections,          // Alt-; - flip selection direction
+    MergeSelections,         // Alt-- - merge all selections
+    AlignSelections,         // & - align selections
+    // ... more selection operations
+]);
+```
+
+#### 4. Minor Mode System (Sub-keymaps)
+
+Instead of persistent modal states, use nested keymap objects:
+
+```json
+{
+  "context": "vim_mode == helix_normal && !menu",
+  "bindings": {
+    "m": {
+      "m": "helix::MatchBrackets",
+      "s": "helix::SurroundAdd",
+      "r": "helix::SurroundReplace",
+      "d": "helix::SurroundDelete"
+    },
+    "g": {
+      "g": "helix::GotoFileStart", 
+      "e": "helix::GotoFileEnd",
+      "d": "helix::GotoDefinition"
+    },
+    "space": {
+      "f": "helix::FilePicker",
+      "b": "helix::BufferPicker"
+    }
+  }
+}
+```
+
+### Key Implementation Changes Needed
+
+#### 1. Fix Current Zed HelixNormal Mode
+
+**Problem**: Current implementation always extends selections during movement
+**Solution**: Make basic movements work like vim (cursor-only), reserve selection extension for explicit operations
+
+#### 2. Add Selection Mode
+
+```rust
+// Add to vim/src/state.rs Mode enum
+pub enum Mode {
+    Normal,
+    Insert, 
+    Replace,
+    Visual,
+    VisualLine,
+    VisualBlock,
+    HelixNormal,    // Normal helix mode (cursor movement)
+    HelixSelect,    // Helix selection mode (extend selections)
+}
+```
+
+#### 3. Implement Selection Operations
+
+```rust
+// Selection creation (separate from movement)
+impl Vim {
+    fn select_word(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_editor(window, cx, |_, editor, window, cx| {
+            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                s.move_with(|map, selection| {
+                    // Find word boundaries and create selection
+                    let (start, end) = find_word_boundaries(map, selection.head());
+                    selection.set_anchor(start);
+                    selection.set_head(end);
                 });
             });
         });
@@ -300,81 +221,101 @@ pub mod helix {
 }
 ```
 
-### 5. Shell Integration Approach
+### Helix Features Analysis from Codebase
 
-**Safe Shell Execution**:
+#### 1. Selection System
+
+**Core pattern from helix**:
+```rust
+// Transform selections
+let selection = doc.selection(view.id).clone().transform(|range| {
+    // Modify range logic here
+    new_range
+});
+doc.set_selection(view.id, selection);
+```
+
+**Selection manipulation operations**:
+- `select_regex` - find all regex matches in selections
+- `split_selection` - split selections on regex/newlines
+- `merge_selections` - combine selections
+- `collapse_selection` - collapse to cursor position
+- `flip_selections` - swap anchor and head
+
+#### 2. Shell Integration
 
 ```rust
-pub async fn execute_shell_command(
-    command: &str, 
-    input: Option<String>
-) -> Result<String, anyhow::Error> {
-    // Use Zed's existing process spawning infrastructure
-    // Add proper sandboxing and security measures
-    // Handle streaming for large outputs
-}
-
-pub fn shell_pipe(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-    // Get selections
-    // Prompt for command
-    // Execute async and replace selections with output
-    // Maintain selection structure
+fn shell_pipe(cx: &mut Context) {
+    shell_prompt(cx, "pipe:".into(), ShellBehavior::Replace);
 }
 ```
 
-## Key Recommendations
+**Pattern**: Prompt for command, execute on each selection, replace/insert/append results
 
-### 1. Pure Selection Operations
-- Implement all Helix commands as pure selection manipulation functions
-- Use Zed's `editor.change_selections()` infrastructure directly
-- Avoid vim action patterns that expect mode changes
+#### 3. Text Objects and Matching
 
-### 2. Sub-Keymap Implementation
-- Use nested keymap objects instead of persistent modal states
-- Leverage Zed's existing keymap trie system
-- No need for timeout or escape handling - keymap naturally handles this
+```rust
+fn match_brackets(cx: &mut Context) {
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let pos = range.cursor(text_slice);
+        if let Some(matched_pos) = find_matching_bracket(syntax, text, pos) {
+            Range::new(range.anchor, matched_pos)
+        } else {
+            range
+        }
+    });
+    doc.set_selection(view.id, selection);
+}
+```
 
-### 3. Bypass Vim Infrastructure
-- Don't extend vim actions for Helix functionality
-- Create separate `helix::` namespace for commands
-- Register actions that work directly with editor state
+### Migration Strategy
 
-### 4. Leverage Existing Zed Features
-- Use existing selection manipulation infrastructure
-- Build on tree-sitter integration for text objects
-- Utilize process spawning for shell commands
-- Extend regex engine for selection operations
+#### Phase 1: Fix Basic Movement (1-2 weeks)
+1. Modify current HelixNormal mode to use cursor movement only
+2. Add HelixSelect mode for selection extension
+3. Fix existing helix motion implementations
+4. Add proper mode switching (`v` for select mode)
 
-### 5. Performance Considerations
-- Batch selection operations for multiple cursors
-- Use efficient anchor/point conversions
-- Implement proper undo granularity for complex operations
-- Add progress indicators for long-running shell commands
+#### Phase 2: Selection Operations (2-3 weeks)  
+1. Implement core selection manipulation commands
+2. Add regex-based selection operations
+3. Create alignment and filtering operations
+4. Add content rotation and advanced operations
 
-## Migration Path
+#### Phase 3: Minor Modes (1-2 weeks)
+1. Implement sub-keymap system for goto/space/match modes
+2. Add text object selection operations
+3. Implement bracket matching and surrounds
+4. Add tree-sitter based selections
 
-### Phase 1: Core Selection Operations
-1. Create `zed/crates/vim/src/helix/` module structure
-2. Implement basic selection manipulation (collapse, flip, merge, etc.)
-3. Add proper keymap bindings using sub-keymap syntax
-4. Test with simple operations to ensure no mode conflicts
+#### Phase 4: Shell Integration (2-3 weeks)
+1. Implement safe shell command execution
+2. Add selection piping operations
+3. Create filtering and transformation commands
+4. Add progress indicators and error handling
 
-### Phase 2: Text Objects and Matching
-1. Implement bracket matching using existing vim infrastructure
-2. Add text object selection using tree-sitter integration
-3. Implement surround operations using Zed's text manipulation
-4. Create sub-keymap for match mode operations
+#### Phase 5: Polish and Optimization (1-2 weeks)
+1. Performance optimization for many selections
+2. Better error handling and user feedback
+3. Comprehensive testing and documentation
+4. Integration with existing vim features
 
-### Phase 3: Advanced Features
-1. Add regex-based selection operations with UI prompts
-2. Implement shell integration with proper security measures
-3. Add selection content rotation and advanced manipulations
-4. Optimize performance for large numbers of selections
+### Success Metrics
 
-### Phase 4: Integration and Polish
-1. Add comprehensive test coverage
-2. Implement proper error handling and user feedback
-3. Add documentation and help systems
-4. Performance optimization and edge case handling
+1. **Vim compatibility**: No regressions in existing vim functionality
+2. **Movement behavior**: Basic movements work like vim (cursor only)
+3. **Selection operations**: Explicit selection creation and manipulation
+4. **Performance**: Efficient handling of multiple selections
+5. **User experience**: Smooth transition between cursor and selection operations
 
-This approach eliminates the fundamental incompatibility between vim's action+motion paradigm and Helix's selection+action paradigm by implementing Helix features as pure selection operations that bypass vim's mode and action infrastructure entirely.
+## Conclusion
+
+The key insight is that Helix's power comes from **separating selection creation from actions**, not from "always selecting". Basic movements should work exactly like vim, but Helix provides powerful explicit selection operations that enable multi-cursor editing workflows.
+
+This approach allows:
+- **Familiar movement**: vim users feel at home with basic navigation
+- **Powerful selection**: explicit multi-selection creation and manipulation  
+- **Visual feedback**: see what will be affected before acting
+- **Reusable operations**: create selections once, apply multiple actions
+
+The implementation should focus on reusing vim's solid motion foundation while adding Helix's selection manipulation capabilities as a separate layer.

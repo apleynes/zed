@@ -363,7 +363,7 @@
       ":": "command_palette::Toggle",
       "shift-d": "vim::DeleteToEndOfLine",
       "shift-j": "vim::JoinLines",
-      "y": "editor::Copy",
+      "y": "vim::HelixYank",
       "shift-y": "vim::YankLine",
       "i": "vim::InsertBefore",
       "shift-i": "vim::InsertFirstNonWhitespace",

@@ -2,7 +2,6 @@ use editor::{Editor, ToPoint, scroll::Autoscroll};
 use gpui::{Context, Window, actions};
 use language::{Point, SelectionGoal};
 use regex::Regex;
-use std::ops::Range;
 
 use crate::{Vim, regex_prompt::RegexPrompt};
 use anyhow;
@@ -29,6 +28,7 @@ actions!(
         KeepSelections,
         RemoveSelections,
         SelectAll,
+        HelixYank,
     ]
 );
 
@@ -117,6 +117,9 @@ pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     });
     Vim::action(editor, cx, |vim, _: &SelectAll, window, cx| {
         vim.select_all(window, cx);
+    });
+    Vim::action(editor, cx, |vim, _: &HelixYank, window, cx| {
+        vim.helix_yank(window, cx);
     });
 }
 
@@ -656,6 +659,19 @@ impl Vim {
         });
     }
 
+    fn helix_yank(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // If the selection is empty, select one character and yank it, otherwise, do the normal behavior
+        self.update_editor(window, cx, |vim, editor, window, cx| {
+            let selections = editor.selections.all_adjusted(cx);
+            if selections.is_empty() {
+                editor.select_right(&editor::actions::SelectRight, window, cx);
+                editor.select_left(&editor::actions::SelectLeft, window, cx);
+                // editor.
+            }
+            vim.yank_selections_content(editor, crate::motion::MotionKind::Inclusive, window, cx);
+        });
+    }
+
     fn apply_regex_selection(
         &mut self,
         pattern: &str,
@@ -684,53 +700,8 @@ impl Vim {
             }
 
             if !new_ranges.is_empty() {
-                // Sort ranges by start position
-                new_ranges.sort_by_key(|range| range.start);
-
-                // Try to adjust adjacent ranges to prevent merging, but fall back to original if needed
-                let mut adjusted_ranges: Vec<Range<usize>> = Vec::new();
-
-                for (i, range) in new_ranges.iter().enumerate() {
-                    let mut start = range.start;
-                    let mut end = range.end;
-                    let original_range = start..end;
-
-                    // Only try gap insertion for ranges that are more than 1 character
-                    if end - start > 1 {
-                        // Check if this range is adjacent to the previous one
-                        if i > 0 && !adjusted_ranges.is_empty() {
-                            let prev_end = adjusted_ranges[adjusted_ranges.len() - 1].end;
-                            if start == prev_end && start + 1 < end {
-                                start = start + 1;
-                            }
-                        }
-
-                        // Check if this range is adjacent to the next one
-                        if i + 1 < new_ranges.len() {
-                            let next_start = new_ranges[i + 1].start;
-                            if end == next_start && end > start + 1 {
-                                end = end - 1;
-                            }
-                        }
-                    }
-
-                    // Only use adjusted range if it's still valid, otherwise use original
-                    if start < end {
-                        adjusted_ranges.push(start..end);
-                    } else {
-                        adjusted_ranges.push(original_range);
-                    }
-                }
-
-                // If we somehow ended up with no valid ranges, use the original ranges
-                let final_ranges = if adjusted_ranges.is_empty() {
-                    new_ranges
-                } else {
-                    adjusted_ranges
-                };
-
                 editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                    s.select_ranges(final_ranges);
+                    s.select_ranges(new_ranges);
                 });
             }
         });

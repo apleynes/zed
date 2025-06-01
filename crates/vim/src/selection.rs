@@ -686,15 +686,15 @@ impl Vim {
             if !new_ranges.is_empty() {
                 // Sort ranges by start position
                 new_ranges.sort_by_key(|range| range.start);
-                
+
                 // Try to adjust adjacent ranges to prevent merging, but fall back to original if needed
                 let mut adjusted_ranges: Vec<Range<usize>> = Vec::new();
-                
+
                 for (i, range) in new_ranges.iter().enumerate() {
                     let mut start = range.start;
                     let mut end = range.end;
                     let original_range = start..end;
-                    
+
                     // Only try gap insertion for ranges that are more than 1 character
                     if end - start > 1 {
                         // Check if this range is adjacent to the previous one
@@ -704,7 +704,7 @@ impl Vim {
                                 start = start + 1;
                             }
                         }
-                        
+
                         // Check if this range is adjacent to the next one
                         if i + 1 < new_ranges.len() {
                             let next_start = new_ranges[i + 1].start;
@@ -713,7 +713,7 @@ impl Vim {
                             }
                         }
                     }
-                    
+
                     // Only use adjusted range if it's still valid, otherwise use original
                     if start < end {
                         adjusted_ranges.push(start..end);
@@ -849,7 +849,7 @@ impl Vim {
 mod test {
     use indoc::indoc;
 
-    use crate::{state::Mode, test::VimTestContext, VimAddon};
+    use crate::{VimAddon, state::Mode, test::VimTestContext};
 
     #[gpui::test]
     async fn test_trim_selections(cx: &mut gpui::TestAppContext) {
@@ -967,7 +967,8 @@ mod test {
         );
 
         // Directly call apply_regex_selection with word pattern
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_regex_selection(r"\b\w+\b", window, cx);
@@ -996,7 +997,8 @@ mod test {
         );
 
         // Directly call apply_split_selection with whitespace pattern
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_split_selection(r"\s+", window, cx);
@@ -1025,7 +1027,8 @@ mod test {
         );
 
         // Directly call apply_keep_selections with word pattern (alphabetic only)
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_keep_selections(r"^[a-zA-Z]+$", window, cx);
@@ -1054,7 +1057,8 @@ mod test {
         );
 
         // Directly call apply_remove_selections with numeric pattern
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_remove_selections(r"^\d+$", window, cx);
@@ -1083,7 +1087,8 @@ mod test {
         );
 
         // Directly call apply_regex_selection with literal space pattern
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_regex_selection(r" ", window, cx);
@@ -1112,7 +1117,8 @@ mod test {
         );
 
         // Test literal space pattern
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_regex_selection(r" ", window, cx);
@@ -1141,7 +1147,8 @@ mod test {
         );
 
         // Test literal space pattern on single space selection
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_regex_selection(r" ", window, cx);
@@ -1170,7 +1177,8 @@ mod test {
         );
 
         // Test selecting "hello" pattern
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
                 vim.apply_regex_selection(r"hello", window, cx);
@@ -1185,9 +1193,6 @@ mod test {
             Mode::HelixNormal,
         );
     }
-
-
-
 
     #[gpui::test]
     async fn test_flip_selections(cx: &mut gpui::TestAppContext) {
@@ -1256,23 +1261,24 @@ mod test {
         // Set up text where we can test non-merging behavior
         cx.set_state(
             indoc! {"
-            «hello worldˇ»
+            «hellohellohellohelloˇ»
             other line"},
             Mode::HelixNormal,
         );
 
         // Test that selecting word characters gives us separate selections
-        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        let vim =
+            cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
         cx.update(|window, cx| {
             vim.entity.update(cx, |vim, cx| {
-                vim.apply_regex_selection(r"\w+", window, cx);
+                vim.apply_regex_selection(r"hello", window, cx);
             });
         });
 
         // Should select each word separately
         cx.assert_state(
             indoc! {"
-            «helloˇ» «worldˇ»
+            «helloˇ»«helloˇ»«helloˇ»«helloˇ»
             other line"},
             Mode::HelixNormal,
         );

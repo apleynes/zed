@@ -705,6 +705,30 @@ impl Vim {
             }
 
             if !new_ranges.is_empty() {
+                // LIMITATION: Adjacent selections are automatically merged by Zed's selection system
+                //
+                // This is a fundamental behavior in Zed's editor architecture that occurs in the
+                // `select()` method in selections_collection.rs. When selections are adjacent
+                // (where prev.end == next.start), they get merged into a single selection.
+                //
+                // For regex matches like "hellohellohellohello" with pattern "hello":
+                // - Expected (Helix behavior): «hello»«hello»«hello»«hello» (4 separate selections)
+                // - Actual (Zed behavior): «hellohellohellohello» (1 merged selection)
+                //
+                // Attempted solutions that failed:
+                // 1. Creating gaps between ranges - corrupts the actual content
+                // 2. Using temporary separators - causes character boundary issues  
+                // 3. Using anchors instead of ranges - still gets merged
+                // 4. Direct disjoint collection manipulation - private fields prevent access
+                //
+                // Potential future solutions:
+                // 1. Add a "non-mergeable" flag to Selection struct
+                // 2. Modify core selection merging logic to have configurable behavior
+                // 3. Implement a separate selection mode for Helix-style operations
+                // 4. Use a different selection representation for regex operations
+                //
+                // For now, this limitation means some Helix selection behaviors cannot be
+                // perfectly replicated in Zed without architectural changes to the editor core.
                 editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                     s.select_ranges(new_ranges);
                 });

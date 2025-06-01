@@ -464,7 +464,12 @@ impl Vim {
 
         vim.update(cx, |_, cx| {
             Vim::action(editor, cx, |vim, _: &SwitchToNormalMode, window, cx| {
-                vim.switch_mode(vim.default_mode(cx), false, window, cx)
+                let target_mode = match vim.mode {
+                    Mode::HelixNormal => Mode::HelixNormal,
+                    Mode::Normal => Mode::Normal,
+                    _ => vim.default_mode(cx),
+                };
+                vim.switch_mode(target_mode, false, window, cx)
             });
 
             Vim::action(editor, cx, |vim, _: &SwitchToInsertMode, window, cx| {
@@ -810,13 +815,13 @@ impl Vim {
         }
         
         // Check match mode timeout
-        self.check_match_mode_timeout(window, cx);
+        match_mode::check_match_mode_timeout(self, window, cx);
         
         // Handle escape key in match mode
         if self.match_mode_active {
             if let Some(action) = keystroke_event.action.as_ref() {
                 if action.name() == "editor::Cancel" {
-                    self.exit_match_mode(window, cx);
+                    match_mode::exit_match_mode(self, window, cx);
                     return;
                 }
             }
@@ -1545,7 +1550,7 @@ impl Vim {
         }
 
         // Handle match mode input
-        if self.handle_match_mode_input(&text, window, cx) {
+        if match_mode::handle_match_mode_input(self, &text, window, cx) {
             return;
         }
 

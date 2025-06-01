@@ -149,6 +149,29 @@ async fn test_helix_sub_keymap_match_mode(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_helix_mode_switching_to_insert(cx: &mut gpui::TestAppContext) {
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Start in HelixNormal mode
+    cx.set_state("hello worldˇ", Mode::HelixNormal);
+    
+    // Verify we start in HelixNormal mode
+    assert_eq!(cx.mode(), Mode::HelixNormal);
+
+    // Press 'i' to enter insert mode
+    cx.simulate_keystrokes("i");
+    
+    // Verify mode switched to Insert
+    assert_eq!(cx.mode(), Mode::Insert);
+    
+    // Press escape to return to HelixNormal mode
+    cx.simulate_keystrokes("escape");
+    
+    // Verify we're back in HelixNormal mode
+    assert_eq!(cx.mode(), Mode::HelixNormal);
+}
+
+#[gpui::test]
 async fn test_helix_multiple_selections_workflow(cx: &mut gpui::TestAppContext) {
     let mut cx = VimTestContext::new(cx, true).await;
 

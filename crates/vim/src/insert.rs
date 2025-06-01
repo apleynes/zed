@@ -36,7 +36,12 @@ impl Vim {
                     });
                 });
             });
-            self.switch_mode(self.default_mode(cx), false, window, cx);
+            let target_mode = if self.last_mode == Mode::HelixNormal {
+                Mode::HelixNormal
+            } else {
+                self.default_mode(cx)
+            };
+            self.switch_mode(target_mode, false, window, cx);
             return;
         }
 

@@ -312,7 +312,57 @@ impl Vim {
             }
         }
     }
+}
+
+// Module functions called from vim.rs
+pub fn check_match_mode_timeout(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>) {
+    vim.check_match_mode_timeout(window, cx);
+}
+
+pub fn exit_match_mode(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>) {
+    vim.exit_match_mode(window, cx);
+}
+
+pub fn handle_match_mode_input(vim: &mut Vim, text: &str, window: &mut Window, cx: &mut Context<Vim>) -> bool {
+    if !vim.match_mode_active {
+        return false;
+    }
     
+    // Handle surround character input
+    if vim.match_mode_awaiting_surround_char {
+        vim.match_mode_awaiting_surround_char = false;
+        vim.exit_match_mode(window, cx);
+        // TODO: Implement actual surround logic
+        return true;
+    }
+    
+    // Handle delete surround character input
+    if vim.match_mode_awaiting_delete_char {
+        vim.match_mode_awaiting_delete_char = false;
+        vim.exit_match_mode(window, cx);
+        // TODO: Implement actual delete surround logic
+        return true;
+    }
+    
+    // Handle replace surround character input
+    if vim.match_mode_awaiting_replace_from {
+        vim.match_mode_replace_from_char = text.chars().next();
+        vim.match_mode_awaiting_replace_from = false;
+        vim.match_mode_awaiting_replace_to = true;
+        return true;
+    }
+    
+    if vim.match_mode_awaiting_replace_to {
+        vim.match_mode_awaiting_replace_to = false;
+        vim.exit_match_mode(window, cx);
+        // TODO: Implement actual replace surround logic
+        return true;
+    }
+    
+    false
+}
+
+impl Vim {
     pub fn is_match_mode_active(&self) -> bool {
         self.match_mode_active
     }

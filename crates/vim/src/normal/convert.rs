@@ -212,6 +212,7 @@ impl Vim {
                     }
 
                     Mode::HelixNormal => {}
+                    Mode::HelixSelect => {}
                     Mode::Insert | Mode::Normal | Mode::Replace => {
                         let start = selection.start;
                         let mut end = start;

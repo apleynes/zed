@@ -374,7 +374,7 @@ impl Vim {
     fn object(&mut self, object: Object, window: &mut Window, cx: &mut Context<Self>) {
         match self.mode {
             Mode::Normal => self.normal_object(object, window, cx),
-            Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
+            Mode::Visual | Mode::VisualLine | Mode::VisualBlock | Mode::HelixSelect => {
                 self.visual_object(object, window, cx)
             }
             Mode::Insert | Mode::Replace | Mode::HelixNormal => {

@@ -1,9 +1,14 @@
 pub mod selections;
+pub mod movement;
+pub mod mode;
 
 #[cfg(test)]
 mod test;
 
-use editor::{Editor, scroll::Autoscroll, DisplayPoint};
+#[cfg(test)]
+mod movement_test;
+
+use editor::{Editor, scroll::Autoscroll};
 use gpui::{Window, Context, actions};
 use crate::{Vim, motion::Motion};
 
@@ -41,6 +46,12 @@ actions!(
 );
 
 pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
+    // Register movement system
+    movement::register(editor, cx);
+    
+    // Register mode switching
+    mode::register(editor, cx);
+    
     // Selection manipulation
     Vim::action(editor, cx, helix_collapse_selection);
     Vim::action(editor, cx, helix_flip_selections);
@@ -467,19 +478,9 @@ fn helix_text_object_inside(
     });
 }
 
-// Helix-style motion that extends selections instead of moving cursor
 impl Vim {
+    /// Legacy helix motion interface - now delegates to proper movement system
     pub fn helix_normal_motion(
-        &mut self,
-        motion: Motion,
-        _times: Option<usize>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.helix_move_cursor(motion, _times, window, cx);
-    }
-
-    fn helix_move_cursor(
         &mut self,
         motion: Motion,
         times: Option<usize>,
@@ -487,96 +488,12 @@ impl Vim {
         cx: &mut Context<Self>,
     ) {
         let count = times.unwrap_or(1);
-        
-        self.update_editor(window, cx, |_, editor, window, cx| {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                s.move_with(|map, selection| {
-                    // In Helix, motions extend selections instead of just moving cursor
-                    let mut new_head = selection.head();
-                    
-                    for _ in 0..count {
-                        new_head = match motion {
-                            Motion::Left => {
-                                if new_head.column() > 0 {
-                                    DisplayPoint::new(new_head.row(), new_head.column() - 1)
-                                } else {
-                                    new_head
-                                }
-                            }
-                            Motion::Right => {
-                                let line_len = map.line_len(new_head.row());
-                                if new_head.column() < line_len {
-                                    DisplayPoint::new(new_head.row(), new_head.column() + 1)
-                                } else {
-                                    new_head
-                                }
-                            }
-                            Motion::Up { .. } => {
-                                if new_head.row().0 > 0 {
-                                    let new_row_num = new_head.row().0 - 1;
-                                    let new_row = editor::display_map::DisplayRow(new_row_num);
-                                    let line_len = map.line_len(new_row);
-                                    let new_col = new_head.column().min(line_len);
-                                    DisplayPoint::new(new_row, new_col)
-                                } else {
-                                    new_head
-                                }
-                            }
-                            Motion::Down { .. } => {
-                                if new_head.row() < map.max_point().row() {
-                                    let new_row_num = new_head.row().0 + 1;
-                                    let new_row = editor::display_map::DisplayRow(new_row_num);
-                                    let line_len = map.line_len(new_row);
-                                    let new_col = new_head.column().min(line_len);
-                                    DisplayPoint::new(new_row, new_col)
-                                } else {
-                                    new_head
-                                }
-                            }
-                            Motion::NextWordStart { ignore_punctuation } => {
-                                crate::motion::next_word_start(map, new_head, ignore_punctuation, 1)
-                            }
-                            Motion::NextWordEnd { ignore_punctuation } => {
-                                crate::motion::next_word_end(map, new_head, ignore_punctuation, 1, true)
-                            }
-                            Motion::PreviousWordStart { .. } => {
-                                // Simple left movement for now
-                                if new_head.column() > 0 {
-                                    DisplayPoint::new(new_head.row(), new_head.column() - 1)
-                                } else {
-                                    new_head
-                                }
-                            }
-                            Motion::StartOfLine { .. } => {
-                                DisplayPoint::new(new_head.row(), 0)
-                            }
-                            Motion::EndOfLine { .. } => {
-                                let line_len = map.line_len(new_head.row());
-                                DisplayPoint::new(new_head.row(), line_len)
-                            }
-                            Motion::FirstNonWhitespace { display_lines } => {
-                                crate::motion::first_non_whitespace(map, display_lines, new_head)
-                            }
-                            Motion::StartOfDocument => {
-                                DisplayPoint::new(editor::display_map::DisplayRow(0), 0)
-                            }
-                            Motion::EndOfDocument => {
-                                map.max_point()
-                            }
-                            Motion::CurrentLine => {
-                                DisplayPoint::new(new_head.row(), 0)
-                            }
-                            // For other motions, fall back to keeping current position
-                            // TODO: Implement more motion types as needed
-                            _ => new_head,
-                        };
-                    }
-                    
-                    // In Helix style, extend the selection to the new head position
-                    // Keep the original tail/anchor but move the head
-                    selection.set_head(new_head, selection.goal);
-                });
-            });
-        });
+        for _ in 0..count {
+            // Use the proper helix movement system
+            // In HelixNormal mode: just move cursor
+            // In HelixSelect mode: extend selection
+            let extend = self.is_helix_select_mode();
+            self.helix_move_cursor(motion.clone(), extend, window, cx);
+        }
     }
 }

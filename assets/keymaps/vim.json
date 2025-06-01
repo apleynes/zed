@@ -358,6 +358,23 @@
   {
     "context": "vim_mode == helix_normal && !menu",
     "bindings": {
+      // Basic helix movements (cursor-only, no selection extension)
+      "h": "helix_movement::MoveCharLeft",
+      "j": "helix_movement::MoveLineDown", 
+      "k": "helix_movement::MoveLineUp",
+      "l": "helix_movement::MoveCharRight",
+      "w": "helix_movement::MoveNextWordStart",
+      "b": "helix_movement::MovePrevWordStart",
+      "e": "helix_movement::MoveNextWordEnd",
+      "^": "helix_movement::MoveFirstNonWhitespace",
+      "$": "helix_movement::MoveEndOfLine",
+      "0": "helix_movement::MoveStartOfLine",
+      "g g": "helix_movement::MoveStartOfDocument",
+      "g e": "helix_movement::MoveEndOfDocument",
+      
+      // Mode switching
+      "v": "helix_mode::EnterSelectMode",
+      
       "escape": "editor::Cancel",
       "ctrl-[": "editor::Cancel",
       ":": "command_palette::Toggle",
@@ -472,6 +489,56 @@
       "ctrl-c": "editor::ToggleComments",
       "d": "vim::HelixDelete",
       "c": "vim::Substitute"
+    }
+  },
+  {
+    "context": "vim_mode == helix_select && !menu",
+    "bindings": {
+      // Selection extending movements
+      "h": "helix_movement::ExtendCharLeft",
+      "j": "helix_movement::ExtendLineDown", 
+      "k": "helix_movement::ExtendLineUp",
+      "l": "helix_movement::ExtendCharRight",
+      "w": "helix_movement::ExtendNextWordStart",
+      "b": "helix_movement::ExtendPrevWordStart",
+      "e": "helix_movement::ExtendNextWordEnd",
+      "^": "helix_movement::ExtendFirstNonWhitespace",
+      "$": "helix_movement::ExtendEndOfLine",
+      "0": "helix_movement::ExtendStartOfLine",
+      "g g": "helix_movement::ExtendStartOfDocument",
+      "g e": "helix_movement::ExtendEndOfDocument",
+      
+      // Mode switching
+      "v": "helix_mode::ExitSelectMode",
+      "escape": "helix_mode::ExitSelectMode",
+      "ctrl-[": "helix_mode::ExitSelectMode",
+      
+      // Selection manipulation (same as normal mode)
+      "alt-minus": "helix::MergeSelections",
+      "alt-_": "helix::MergeConsecutiveSelections",
+      "&": "helix::AlignSelections",
+      "_": "helix::TrimSelections",
+      ";": "helix::CollapseSelection",
+      "alt-;": "helix::FlipSelections",
+      ",": "helix::KeepPrimarySelection",
+      "alt-,": "helix::RemovePrimarySelection",
+      "shift-c": "helix::CopySelectionOnNextLine",
+      "alt-c": "helix::CopySelectionOnPrevLine",
+      "(": "helix::RotateSelectionsBackward",
+      ")": "helix::RotateSelectionsForward",
+      "alt-(": "helix::RotateSelectionContentsBackward",
+      "alt-)": "helix::RotateSelectionContentsForward",
+      
+      // Actions on selections
+      "d": "vim::HelixDelete",
+      "c": "vim::Substitute",
+      "y": "vim::HelixYank",
+      
+      // Insert modes (exit select mode first)
+      "i": ["helix_mode::ExitSelectMode", "vim::InsertBefore"],
+      "a": ["helix_mode::ExitSelectMode", "vim::InsertAfter"],
+      "o": ["helix_mode::ExitSelectMode", "vim::InsertLineBelow"],
+      "shift-o": ["helix_mode::ExitSelectMode", "vim::InsertLineAbove"]
     }
   },
   {

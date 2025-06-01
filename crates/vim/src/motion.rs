@@ -654,6 +654,7 @@ impl Vim {
                 }
 
                 Mode::HelixNormal => {}
+                Mode::HelixSelect => {}
             }
         }
 
@@ -695,6 +696,7 @@ impl Vim {
             }
 
             Mode::HelixNormal => self.helix_normal_motion(motion.clone(), count, window, cx),
+            Mode::HelixSelect => self.helix_normal_motion(motion.clone(), count, window, cx),
         }
         self.clear_operator(window, cx);
         if let Some(operator) = waiting_operator {

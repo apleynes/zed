@@ -8,6 +8,9 @@ mod test;
 #[cfg(test)]
 mod movement_test;
 
+#[cfg(test)]
+mod selection_test;
+
 use editor::{Editor, scroll::Autoscroll};
 use gpui::{Window, Context, actions};
 use crate::{Vim, motion::Motion};
@@ -148,37 +151,63 @@ fn helix_merge_consecutive_selections(
     cx: &mut Context<Vim>,
 ) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
+        let buffer = editor.buffer().read(cx).snapshot(cx);
         let selections = editor.selections.all_adjusted(cx);
+        
+        if selections.len() <= 1 {
+            return;
+        }
+        
         let mut merged_ranges = Vec::new();
-        let mut current_start = None;
-        let mut current_end = None;
+        let mut current_group = Vec::new();
         
         for selection in selections {
-            let start = selection.start;
-            let end = selection.end;
-            
-            match (current_start, current_end) {
-                (None, None) => {
-                    current_start = Some(start);
-                    current_end = Some(end);
-                }
-                (Some(cur_start), Some(cur_end)) => {
-                    if start <= cur_end {
-                        // Overlapping or touching, merge
-                        current_end = Some(end.max(cur_end));
+            if current_group.is_empty() {
+                current_group.push(selection);
+            } else {
+                let last_selection = current_group.last().unwrap();
+                let last_end_row = last_selection.end.row;
+                let current_start_row = selection.start.row;
+                
+                // Check if this selection is on the next consecutive line
+                if current_start_row == last_end_row + 1 || current_start_row == last_end_row {
+                    current_group.push(selection);
+                } else {
+                    // Gap found, finalize current group
+                    if current_group.len() > 1 {
+                        // Merge the group into one selection
+                        let first = current_group.first().unwrap();
+                        let last = current_group.last().unwrap();
+                        let start_offset = buffer.point_to_offset(first.start);
+                        let end_offset = buffer.point_to_offset(last.end);
+                        merged_ranges.push(start_offset..end_offset);
                     } else {
-                        // Gap, finalize current range
-                        merged_ranges.push(cur_start..cur_end);
-                        current_start = Some(start);
-                        current_end = Some(end);
+                        // Single selection, keep as is
+                        let selection = current_group.first().unwrap();
+                        let start_offset = buffer.point_to_offset(selection.start);
+                        let end_offset = buffer.point_to_offset(selection.end);
+                        merged_ranges.push(start_offset..end_offset);
                     }
+                    current_group.clear();
+                    current_group.push(selection);
                 }
-                _ => unreachable!(),
             }
         }
         
-        if let (Some(start), Some(end)) = (current_start, current_end) {
-            merged_ranges.push(start..end);
+        // Handle the last group
+        if !current_group.is_empty() {
+            if current_group.len() > 1 {
+                let first = current_group.first().unwrap();
+                let last = current_group.last().unwrap();
+                let start_offset = buffer.point_to_offset(first.start);
+                let end_offset = buffer.point_to_offset(last.end);
+                merged_ranges.push(start_offset..end_offset);
+            } else {
+                let selection = current_group.first().unwrap();
+                let start_offset = buffer.point_to_offset(selection.start);
+                let end_offset = buffer.point_to_offset(selection.end);
+                merged_ranges.push(start_offset..end_offset);
+            }
         }
         
         if !merged_ranges.is_empty() {

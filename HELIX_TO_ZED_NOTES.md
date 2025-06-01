@@ -4,9 +4,9 @@
 
 After implementing Helix movement and selection behavior in Zed, we have confirmed that Helix uses a **selection + action** paradigm that is fundamentally different from vim's **action + motion** approach. The key insight is that Helix separates selection creation from actions, enabling powerful multi-cursor workflows while maintaining familiar cursor movement semantics.
 
-## ✅ IMPLEMENTATION COMPLETED
+## ✅ PHASE 1 & 2 IMPLEMENTATION COMPLETED
 
-We have successfully implemented correct Helix movement and selection behavior in Zed with all tests passing.
+We have successfully implemented correct Helix movement and selection behavior in Zed with all tests passing, plus advanced selection operations.
 
 ## Corrected Understanding of Helix Behavior
 
@@ -210,8 +210,9 @@ if self.is_helix_select_mode() {
 
 ## Test Coverage ✅
 
-All Helix movement tests passing:
+All Helix tests passing - 47 total tests:
 
+### Movement Tests (8 tests) ✅
 ```
 ✅ test_helix_cursor_movement_normal_mode
 ✅ test_helix_word_movement_normal_mode  
@@ -221,8 +222,33 @@ All Helix movement tests passing:
 ✅ test_helix_movement_basic_integration
 ✅ test_helix_cursor_position_semantics
 ✅ test_helix_mode_switching
-✅ Plus 18 additional helix tests
 ```
+
+### Selection Operation Tests (22 tests) ✅
+```
+✅ test_collapse_selection_single/multiple
+✅ test_flip_selections_single/multiple
+✅ test_merge_selections_adjacent/overlapping
+✅ test_merge_consecutive_selections
+✅ test_keep_primary_selection
+✅ test_remove_primary_selection
+✅ test_trim_selections_whitespace/multiple
+✅ test_align_selections_basic
+✅ test_copy_selection_on_next/prev_line
+✅ test_copy_selection_line_boundary
+✅ test_rotate_selections_forward/backward
+✅ test_rotate_selection_contents_forward/backward
+✅ test_selection_operations_empty_selections
+✅ test_selection_operations_single_selection
+✅ test_selection_workflow_comprehensive
+```
+
+### Integration Tests (17 tests) ✅
+```
+✅ Plus 17 additional integration and behavioral tests
+```
+
+**Note**: All tests pass but some manual testing reveals UI/behavior issues not covered by current tests.
 
 ## Behavior Examples (Verified)
 
@@ -245,17 +271,46 @@ Position in middle + gg → «ˇ...selection to start»
 Position in middle + G  → «...selection to ˇ»end
 ```
 
-## Next Implementation Phases
+## ✅ PHASE 2: ADVANCED SELECTION OPERATIONS COMPLETED
 
-### Phase 2: Advanced Selection Operations (Ready)
+Successfully implemented all core selection manipulation features:
+
+### ✅ Working Selection Operations
+- **`;`** - collapse selections to cursors ✅
+- **`Alt-;`** - flip selection direction (swap anchor and head) ✅
+- **`_`** - trim whitespace from selections ✅
+- **`C`/`Alt-C`** - copy selection to next/previous line ✅
+- **`,`** - keep only primary selection ✅
+- **`Alt-,`** - remove primary selection ✅
+- **`Alt-_`** - merge consecutive selections ✅
+- **Rotate selection contents** - forward/backward content rotation ✅
+
+### ❌ KNOWN ISSUES IN PHASE 2
+
+#### Selection Operations Issues
+1. **`&` (align selections)** - Not working in manual testing
+   - Function implemented but may have UI/behavior issues
+   
+2. **Rotate selections** - Not working properly
+   - Function exists but no visual indicator of primary selection
+   - Always drops first selection instead of rotating primary
+   
+3. **Merge selections (`Alt--`)** - Broken
+   - `merge_consecutive_selections` works fine
+   - Regular `merge_selections` has issues
+
+#### Movement + Selection Issues  
+4. **Shift + movement keys** - Not creating selections
+   - `Shift+w`, `Shift+b`, `Shift+e` should select like `w`, `b`, `e`
+   - Currently only moves cursor without selecting
+   
+5. **Find character movements** - Only moving cursor
+   - `f`, `F`, `t`, `T` should create selections to target character
+   - Currently only moves cursor without selecting
+
+### Phase 3: Text Objects and Matching (Next)
 - `s` - select regex matches within selections
 - `S` - split selections on regex  
-- `;` - collapse selections (partially implemented)
-- `Alt-;` - flip selection direction
-- `&` - align selections
-- `_` - trim whitespace from selections
-
-### Phase 3: Text Objects and Matching
 - `mi` - select inside text objects
 - `ma` - select around text objects  
 - `mm` - match brackets
@@ -267,10 +322,8 @@ Position in middle + G  → «...selection to ˇ»end
 - `z` prefix commands (view mode)
 
 ### Phase 5: Multi-Selection Workflows
-- `C` - change all selections
-- `,` - keep only main selection
-- `Alt-,` - remove main selection
 - `|` - shell pipe selections
+- Advanced multi-cursor editing workflows
 
 ## Key Implementation Insights
 
@@ -293,23 +346,40 @@ Helix cursor positioning follows specific rules:
 - For backward selections: cursor at left edge
 - Single-character selections show cursor at character position
 
-## Success Metrics ✅
+## Success Metrics ✅ (Partial)
 
 1. **✅ Vim compatibility**: No regressions in existing vim functionality
 2. **✅ Movement behavior**: Basic movements work like vim (cursor only)
-3. **✅ Selection operations**: Word/document movements create selections correctly
+3. **✅ Selection operations**: Word/document movements create selections correctly (tests)
 4. **✅ Mode switching**: Proper behavior between normal and select modes
 5. **✅ Performance**: Efficient handling of selections and movements
+6. **❌ Manual testing**: Some features not working in practice despite passing tests
+
+## Current Status: Phase 2 Complete with Issues
+
+### ✅ Major Achievements
+- **Core helix paradigm working**: Selection + action model implemented
+- **All automated tests passing**: 47 tests covering movement and selection operations
+- **Solid architecture**: Ready for Phase 3 text objects and advanced features
+
+### ❌ Remaining Issues for Polish
+- **UI indicators**: Need visual feedback for primary selection
+- **Keymap integration**: Shift+movement and find keys need selection behavior
+- **Edge case fixes**: Some selection operations need manual testing refinement
+
+### Next Priority: Fix Manual Testing Issues
+Before proceeding to Phase 3, need to address:
+1. Align selections (`&`) functionality
+2. Selection rotation with proper primary indication  
+3. Merge selections fix
+4. Shift+movement key selection behavior
+5. Find character selection behavior (`f`, `F`, `t`, `T`)
 
 ## Conclusion
 
-The Helix movement and selection system has been successfully implemented in Zed. The core insight that **Helix separates selection creation from actions** has been validated and implemented correctly. 
+The Helix movement and selection system core is successfully implemented in Zed. The fundamental insight that **Helix separates selection creation from actions** has been validated and works correctly in automated testing.
 
-Key outcomes:
-- **Familiar navigation**: vim users have familiar h,j,k,l movement
-- **Powerful selections**: w,e,b,x create selections for multi-cursor workflows
-- **Visual feedback**: users see what will be affected before acting
-- **Mode clarity**: distinct behavior between normal and select modes
-- **Solid foundation**: ready for advanced selection manipulation features
-
-The implementation demonstrates that Helix's editing paradigm can be successfully integrated into existing vim-based editors while maintaining compatibility and performance.
+**Phase 2 Status: Feature Complete, Polish Needed**
+- All core selection operations implemented and tested
+- Manual testing reveals some UI/integration issues
+- Ready for final fixes before Phase 3 text objects

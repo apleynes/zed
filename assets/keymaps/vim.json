@@ -460,6 +460,7 @@
       "alt-)": "vim::RotateSelectionContentsForward",
       "shift-k": "vim::KeepSelections",
       "alt-k": "vim::RemoveSelections",
+      "%": "vim::SelectAll",
       // Match mode
       "m m": "vim::Matching",
       "m i w": ["workspace::SendKeystrokes", "v i w"],

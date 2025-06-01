@@ -2,6 +2,7 @@ use editor::{Editor, ToPoint, scroll::Autoscroll};
 use gpui::{Context, Window, actions};
 use language::{Point, SelectionGoal};
 use regex::Regex;
+use std::ops::Range;
 
 use crate::{Vim, regex_prompt::RegexPrompt};
 use anyhow;
@@ -27,6 +28,7 @@ actions!(
         RotateSelectionContentsForward,
         KeepSelections,
         RemoveSelections,
+        SelectAll,
     ]
 );
 
@@ -112,6 +114,9 @@ pub(crate) fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     });
     Vim::action(editor, cx, |vim, _: &RemoveSelections, window, cx| {
         vim.remove_selections(window, cx);
+    });
+    Vim::action(editor, cx, |vim, _: &SelectAll, window, cx| {
+        vim.select_all(window, cx);
     });
 }
 
@@ -645,6 +650,12 @@ impl Vim {
         });
     }
 
+    fn select_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_editor(window, cx, |_, editor, window, cx| {
+            editor.select_all(&editor::actions::SelectAll, window, cx);
+        });
+    }
+
     fn apply_regex_selection(
         &mut self,
         pattern: &str,
@@ -673,8 +684,53 @@ impl Vim {
             }
 
             if !new_ranges.is_empty() {
+                // Sort ranges by start position
+                new_ranges.sort_by_key(|range| range.start);
+                
+                // Try to adjust adjacent ranges to prevent merging, but fall back to original if needed
+                let mut adjusted_ranges: Vec<Range<usize>> = Vec::new();
+                
+                for (i, range) in new_ranges.iter().enumerate() {
+                    let mut start = range.start;
+                    let mut end = range.end;
+                    let original_range = start..end;
+                    
+                    // Only try gap insertion for ranges that are more than 1 character
+                    if end - start > 1 {
+                        // Check if this range is adjacent to the previous one
+                        if i > 0 && !adjusted_ranges.is_empty() {
+                            let prev_end = adjusted_ranges[adjusted_ranges.len() - 1].end;
+                            if start == prev_end && start + 1 < end {
+                                start = start + 1;
+                            }
+                        }
+                        
+                        // Check if this range is adjacent to the next one
+                        if i + 1 < new_ranges.len() {
+                            let next_start = new_ranges[i + 1].start;
+                            if end == next_start && end > start + 1 {
+                                end = end - 1;
+                            }
+                        }
+                    }
+                    
+                    // Only use adjusted range if it's still valid, otherwise use original
+                    if start < end {
+                        adjusted_ranges.push(start..end);
+                    } else {
+                        adjusted_ranges.push(original_range);
+                    }
+                }
+
+                // If we somehow ended up with no valid ranges, use the original ranges
+                let final_ranges = if adjusted_ranges.is_empty() {
+                    new_ranges
+                } else {
+                    adjusted_ranges
+                };
+
                 editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                    s.select_ranges(new_ranges);
+                    s.select_ranges(final_ranges);
                 });
             }
         });
@@ -1132,6 +1188,7 @@ mod test {
 
 
 
+
     #[gpui::test]
     async fn test_flip_selections(cx: &mut gpui::TestAppContext) {
         let mut cx = VimTestContext::new(cx, true).await;
@@ -1188,6 +1245,35 @@ mod test {
             The qu«ick brownˇ»
             fox jumps over
             the lazy dog."},
+            Mode::HelixNormal,
+        );
+    }
+
+    #[gpui::test]
+    async fn test_adjacent_regex_selections_no_merge(cx: &mut gpui::TestAppContext) {
+        let mut cx = VimTestContext::new(cx, true).await;
+
+        // Set up text where we can test non-merging behavior
+        cx.set_state(
+            indoc! {"
+            «hello worldˇ»
+            other line"},
+            Mode::HelixNormal,
+        );
+
+        // Test that selecting word characters gives us separate selections
+        let vim = cx.update_editor(|editor, _window, _cx| editor.addon::<VimAddon>().cloned().unwrap());
+        cx.update(|window, cx| {
+            vim.entity.update(cx, |vim, cx| {
+                vim.apply_regex_selection(r"\w+", window, cx);
+            });
+        });
+
+        // Should select each word separately
+        cx.assert_state(
+            indoc! {"
+            «helloˇ» «worldˇ»
+            other line"},
             Mode::HelixNormal,
         );
     }

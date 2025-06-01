@@ -20,6 +20,17 @@ actions!(
         MoveFirstNonWhitespace,
         MoveStartOfDocument,
         MoveEndOfDocument,
+        
+        // Find movements (create selections to target character)
+        FindForward,
+        FindBackward,
+        FindForwardTill,
+        FindBackwardTill,
+        
+        // WORD movements (ignore punctuation)
+        MoveNextWordStartIgnorePunctuation,
+        MovePrevWordStartIgnorePunctuation,
+        MoveNextWordEndIgnorePunctuation,
     ]
 );
 
@@ -76,6 +87,36 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     
     Vim::action(editor, cx, |vim, _: &MoveEndOfDocument, window, cx| {
         vim.helix_word_move_cursor(Motion::EndOfDocument, window, cx);
+    });
+    
+    // Find movements: create selections to target character
+    Vim::action(editor, cx, |vim, _: &FindForward, window, cx| {
+        vim.push_operator(crate::Operator::HelixFindForward { before: false }, window, cx);
+    });
+    
+    Vim::action(editor, cx, |vim, _: &FindBackward, window, cx| {
+        vim.push_operator(crate::Operator::HelixFindBackward { after: false }, window, cx);
+    });
+    
+    Vim::action(editor, cx, |vim, _: &FindForwardTill, window, cx| {
+        vim.push_operator(crate::Operator::HelixFindForward { before: true }, window, cx);
+    });
+    
+    Vim::action(editor, cx, |vim, _: &FindBackwardTill, window, cx| {
+        vim.push_operator(crate::Operator::HelixFindBackward { after: true }, window, cx);
+    });
+    
+    // WORD movements: create selections in normal mode, extend in select mode
+    Vim::action(editor, cx, |vim, _: &MoveNextWordStartIgnorePunctuation, window, cx| {
+        vim.helix_word_move_cursor(Motion::NextWordStart { ignore_punctuation: true }, window, cx);
+    });
+    
+    Vim::action(editor, cx, |vim, _: &MovePrevWordStartIgnorePunctuation, window, cx| {
+        vim.helix_word_move_cursor(Motion::PreviousWordStart { ignore_punctuation: true }, window, cx);
+    });
+    
+    Vim::action(editor, cx, |vim, _: &MoveNextWordEndIgnorePunctuation, window, cx| {
+        vim.helix_word_move_cursor(Motion::NextWordEnd { ignore_punctuation: true }, window, cx);
     });
 }
 
@@ -186,7 +227,6 @@ impl Vim {
                             if matches!(motion, Motion::NextWordEnd { .. } | Motion::PreviousWordEnd { .. }) {
                                 end_pos = editor::movement::right(map, end_pos);
                             }
-                            
                             // For document motions, Helix expects absolute positions
                             if matches!(motion, Motion::StartOfDocument) {
                                 // Go to absolute beginning of document (row 0, column 0)
@@ -207,4 +247,8 @@ impl Vim {
             });
         }
     }
+
+
+
+
 }

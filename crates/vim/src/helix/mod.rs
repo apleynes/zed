@@ -11,6 +11,18 @@ mod movement_test;
 #[cfg(test)]
 mod selection_test;
 
+#[cfg(test)]
+mod fix_test;
+
+#[cfg(test)]
+mod word_movement_tests;
+
+#[cfg(test)]
+mod selection_operation_tests;
+
+#[cfg(test)]
+mod find_movement_tests;
+
 use editor::{Editor, scroll::Autoscroll};
 use gpui::{Window, Context, actions};
 use crate::{Vim, motion::Motion};
@@ -128,6 +140,7 @@ fn helix_merge_selections(
     cx: &mut Context<Vim>,
 ) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
+        let buffer = editor.buffer().read(cx).snapshot(cx);
         let selections = editor.selections.all_adjusted(cx);
         if selections.len() <= 1 {
             return;
@@ -138,8 +151,11 @@ fn helix_merge_selections(
         let merged_start = first.start.min(last.start);
         let merged_end = first.end.max(last.end);
         
+        let start_offset = buffer.point_to_offset(merged_start);
+        let end_offset = buffer.point_to_offset(merged_end);
+        
         editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.select_ranges([merged_start..merged_end]);
+            s.select_ranges([start_offset..end_offset]);
         });
     });
 }

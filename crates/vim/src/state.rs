@@ -132,6 +132,12 @@ pub enum Operator {
     ToggleComments,
     ReplaceWithRegister,
     Exchange,
+    HelixFindForward {
+        before: bool,
+    },
+    HelixFindBackward {
+        after: bool,
+    },
 }
 
 #[derive(Default, Clone, Debug)]
@@ -968,6 +974,10 @@ impl Operator {
             Operator::RecordRegister => "q",
             Operator::ReplayRegister => "@",
             Operator::ToggleComments => "gc",
+            Operator::HelixFindForward { before: false } => "hf",
+            Operator::HelixFindForward { before: true } => "ht",
+            Operator::HelixFindBackward { after: false } => "hF",
+            Operator::HelixFindBackward { after: true } => "hT",
         }
     }
 
@@ -989,6 +999,8 @@ impl Operator {
         match self {
             Operator::AddSurrounds { target } => target.is_some() || mode.is_visual(),
             Operator::FindForward { .. }
+            | Operator::HelixFindForward { .. }
+            | Operator::HelixFindBackward { .. }
             | Operator::Mark
             | Operator::Jump { .. }
             | Operator::FindBackward { .. }
@@ -1048,6 +1060,8 @@ impl Operator {
             | Operator::Object { .. }
             | Operator::FindForward { .. }
             | Operator::FindBackward { .. }
+            | Operator::HelixFindForward { .. }
+            | Operator::HelixFindBackward { .. }
             | Operator::Sneak { .. }
             | Operator::SneakBackward { .. }
             | Operator::Mark

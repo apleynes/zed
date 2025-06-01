@@ -6,7 +6,7 @@
 
 **Issue**: RotateSelectionContents* (`Alt-(` and `Alt-)`) rotates the text content between selections but does not move the selection boundaries to follow the rotated content.
 
-**Current Behavior**: 
+**Current Behavior**:
 - Content rotates correctly between selections
 - Selection boundaries remain in original positions
 - Cursors don't follow the rotated words
@@ -18,7 +18,7 @@
 
 **Status**: ✅ Content rotation working, ⚠️ Selection positioning needs refinement
 **Priority**: Medium - functionality works but could be more intuitive
-**Notes**: 
+**Notes**:
 - Simple cases (2 selections) work correctly
 - Complex cases with multiple selections and buffer edits have boundary calculation issues
 - Implementation works but doesn't match full Helix behavior
@@ -26,3 +26,11 @@
 
 **Workaround**: Use simple rotation cases or manually adjust selection positions after rotation
 
+
+
+Yank while on a single character (not selected anything) in helix_normal mode yanks the whole line.
+
+
+Now I need to check if the VimTestContext has a `dispatch_action` method. Let me look at its implementation:
+Search files for regex `impl.*VimTestContext
+Let me check the base EditorLspTestContext to see what methods are available:

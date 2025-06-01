@@ -1,6 +1,15 @@
 CONTEXT_NOTES.md IMPLEMENTATION_PLAN.md HELIX_IMPLEMENTATION_TESTING.md https://docs.helix-editor.com/keymap.html
 HELIX_TO_ZED_NOTES.md
 
+I can see that the line `self.switch_mode(self.default_mode(cx), false, window, cx);` is the issue. Instead of using `default_mode(cx)`, it should check if we came from HelixNormal mode and return to that mode.
+
+Since `last_mode` tracks the previous mode, I can modify this to use `last_mode` when appropriate. Let me implement this fix:
+Now let's test this fix:
+
+The fix worked.
+
+
+
 You were working on implementing the UI for the regex prompt for the selection.
 The last thing you did was:
 

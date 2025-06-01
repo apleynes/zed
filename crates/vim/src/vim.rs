@@ -1077,6 +1077,8 @@ impl Vim {
                         // Navigation operators -> Block cursor
                         Operator::FindForward { .. }
                         | Operator::FindBackward { .. }
+                        | Operator::HelixFindForward { .. }
+                        | Operator::HelixFindBackward { .. }
                         | Operator::Mark
                         | Operator::Jump { .. }
                         | Operator::Register
@@ -1585,6 +1587,34 @@ impl Vim {
                 };
                 Vim::globals(cx).last_find = Some(find.clone());
                 self.motion(find, window, cx)
+            }
+            Some(Operator::HelixFindForward { before }) => {
+                let find = Motion::FindForward {
+                    before,
+                    char: text.chars().next().unwrap(),
+                    mode: if VimSettings::get_global(cx).use_multiline_find {
+                        FindRange::MultiLine
+                    } else {
+                        FindRange::SingleLine
+                    },
+                    smartcase: VimSettings::get_global(cx).use_smartcase_find,
+                };
+                Vim::globals(cx).last_find = Some(find.clone());
+                self.helix_word_move_cursor(find, window, cx)
+            }
+            Some(Operator::HelixFindBackward { after }) => {
+                let find = Motion::FindBackward {
+                    after,
+                    char: text.chars().next().unwrap(),
+                    mode: if VimSettings::get_global(cx).use_multiline_find {
+                        FindRange::MultiLine
+                    } else {
+                        FindRange::SingleLine
+                    },
+                    smartcase: VimSettings::get_global(cx).use_smartcase_find,
+                };
+                Vim::globals(cx).last_find = Some(find.clone());
+                self.helix_word_move_cursor(find, window, cx)
             }
             Some(Operator::Sneak { first_char }) => {
                 if let Some(first_char) = first_char {

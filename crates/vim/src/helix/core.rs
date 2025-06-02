@@ -237,51 +237,123 @@ fn range_to_target(text: &Rope, origin: Range, target: WordMotionTarget) -> Rang
     let mut anchor = origin.anchor;
     let mut head = origin.head;
     
-    // Get characters starting from head
-    let chars: Vec<char> = text.chars_at(head).collect();
-    let mut char_index = 0;
+    // Get all characters for safe multibyte character handling
+    let text_str = text.to_string();
+    let all_chars: Vec<char> = text_str.chars().collect();
     
-    // Get previous character for boundary detection
-    let mut prev_ch = if head > 0 {
-        text.chars_at(head.saturating_sub(1)).next()
-    } else {
-        None
-    };
-
-    // Skip any initial newline characters
-    let head_start = head;
-    while char_index < chars.len() {
-        let ch = chars[char_index];
-        if char_is_line_ending(ch) {
-            prev_ch = Some(ch);
-            head += 1;
-            char_index += 1;
-        } else {
-            break;
-        }
-    }
-    
-    if prev_ch.map(char_is_line_ending).unwrap_or(false) {
-        anchor = head;
-    }
-
-    // Find our target position
-    while char_index < chars.len() {
-        let next_ch = chars[char_index];
+    if is_prev {
+        // Backward movement
+        let mut char_index = head.min(all_chars.len());
         
-        if let Some(prev) = prev_ch {
-            if reached_target(target, prev, next_ch) {
-                if head == head_start {
-                    anchor = head;
-                } else {
-                    break;
-                }
+        // Get next character for boundary detection
+        let mut next_ch = if char_index < all_chars.len() {
+            Some(all_chars[char_index])
+        } else {
+            None
+        };
+        
+        // Skip any initial newline characters backwards
+        let head_start = head;
+        while char_index > 0 {
+            let ch = all_chars[char_index - 1];
+            if char_is_line_ending(ch) {
+                next_ch = Some(ch);
+                head -= 1;
+                char_index -= 1;
+            } else {
+                break;
             }
         }
         
-        prev_ch = Some(next_ch);
-        head += 1;
-        char_index += 1;
+        if next_ch.map(char_is_line_ending).unwrap_or(false) {
+            anchor = head;
+        }
+
+        // Find our target position going backwards
+        while char_index > 0 {
+            let prev_ch = all_chars[char_index - 1];
+            
+            if let Some(next) = next_ch {
+                // For PrevWordStart, we want to stop when we reach the start of a word
+                let at_word_start = if matches!(target, WordMotionTarget::PrevWordStart) {
+                    // We're at the start of a word if:
+                    // 1. Target char (prev_ch) is a word char AND
+                    // 2. Character before target (if exists) is not a word char OR we're at beginning
+                    let target_is_word = is_word_char(prev_ch);
+                    let before_target_not_word = char_index == 1 || (char_index > 1 && !is_word_char(all_chars[char_index - 2]));
+                    target_is_word && before_target_not_word
+                } else {
+                    false
+                };
+                
+                let boundary = reached_target(target, prev_ch, next);
+                
+                if at_word_start || boundary {
+                    if head == head_start {
+                        anchor = head;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            next_ch = Some(prev_ch);
+            head -= 1;
+            char_index -= 1;
+        }
+    } else {
+        // Forward movement
+        let mut char_index = head.min(all_chars.len());
+        let chars = if char_index < all_chars.len() {
+            all_chars[char_index..].to_vec()
+        } else {
+            Vec::new()
+        };
+        let mut char_offset = 0;
+        
+        // Get previous character for boundary detection
+        let mut prev_ch = if head > 0 {
+            text.chars_at(head.saturating_sub(1)).next()
+        } else {
+            None
+        };
+
+        // Skip any initial newline characters
+        let mut head_start = head;
+        while char_offset < chars.len() {
+            let ch = chars[char_offset];
+            if char_is_line_ending(ch) {
+                prev_ch = Some(ch);
+                head += 1;
+                char_offset += 1;
+            } else {
+                break;
+            }
+        }
+        
+        if prev_ch.map(char_is_line_ending).unwrap_or(false) {
+            anchor = head;
+            head_start = head;  // Update head_start after skipping newlines
+        }
+
+        // Find our target position
+        while char_offset < chars.len() {
+            let next_ch = chars[char_offset];
+            
+            if let Some(prev) = prev_ch {
+                if reached_target(target, prev, next_ch) {
+                    if head == head_start {
+                        anchor = head;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            prev_ch = Some(next_ch);
+            head += 1;
+            char_offset += 1;
+        }
     }
     
     Range::new(anchor, head)
@@ -411,6 +483,8 @@ mod tests {
             }
         }
     }
+
+
 
     #[test]
     fn test_range_operations() {

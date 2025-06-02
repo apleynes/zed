@@ -2,6 +2,41 @@ use editor::{scroll::Autoscroll};
 use gpui::{Window, Context};
 use language::Point;
 use crate::Vim;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+// Global state to track the primary selection index
+// This is a workaround since Zed doesn't have a primary_index concept like Helix
+static PRIMARY_SELECTION_INDEX: AtomicUsize = AtomicUsize::new(0);
+static LAST_SELECTION_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn get_primary_selection_index() -> usize {
+    PRIMARY_SELECTION_INDEX.load(Ordering::Relaxed)
+}
+
+pub fn set_primary_selection_index(index: usize) {
+    PRIMARY_SELECTION_INDEX.store(index, Ordering::Relaxed);
+}
+
+pub fn reset_primary_selection_index() {
+    PRIMARY_SELECTION_INDEX.store(0, Ordering::Relaxed);
+}
+
+// Call this whenever selections are created from scratch (not modified)
+pub fn reset_primary_index_for_new_selections() {
+    reset_primary_selection_index();
+}
+
+// Check if selection count has changed dramatically and reset if so
+pub fn validate_primary_index_for_selection_count(selection_count: usize) {
+    let last_count = LAST_SELECTION_COUNT.load(Ordering::Relaxed);
+    
+    // If selection count changed significantly, reset primary index
+    if last_count == 0 || selection_count != last_count {
+        reset_primary_selection_index();
+    }
+    
+    LAST_SELECTION_COUNT.store(selection_count, Ordering::Relaxed);
+}
 
 pub fn trim_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
@@ -127,44 +162,36 @@ pub fn rotate_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vi
     vim.update_editor(window, cx, |_, editor, window, cx| {
         let selections = editor.selections.all_adjusted(cx);
         if selections.len() <= 1 {
+            set_primary_selection_index(0);
             return;
         }
         
-        // Get current selection ranges and preserve their order
-        let ranges: Vec<_> = selections.iter().map(|s| {
-            let start_offset = editor.buffer().read(cx).snapshot(cx).point_to_offset(s.start);
-            let end_offset = editor.buffer().read(cx).snapshot(cx).point_to_offset(s.end);
-            start_offset..end_offset
-        }).collect();
+        // Validate and potentially reset primary index based on selection count
+        validate_primary_index_for_selection_count(selections.len());
         
-        // Calculate the new primary selection index
-        // In Zed, the primary is always first, so we need to rotate which selection becomes first
-        let current_primary = 0; // Primary is always first in Zed's selection list
-        let new_primary = if forward {
-            (current_primary + 1) % ranges.len()
+        // Ensure primary index is valid for current selection count
+        let current_primary_index = get_primary_selection_index();
+        let current_primary_index = if current_primary_index >= selections.len() {
+            // Primary index is out of bounds, reset to 0
+            set_primary_selection_index(0);
+            0
         } else {
-            if current_primary == 0 {
-                ranges.len() - 1
-            } else {
-                current_primary - 1
-            }
+            current_primary_index
         };
         
-        // Reorder selections to make the new primary selection first
-        // This simulates Helix's primary_index rotation by reordering the selections
-        let mut reordered_ranges = Vec::new();
-        reordered_ranges.push(ranges[new_primary].clone());
+        // Calculate the new primary index (like Helix does)
+        let len = selections.len();
+        let new_primary_index = if forward {
+            (current_primary_index + 1) % len
+        } else {
+            (current_primary_index + len - 1) % len
+        };
         
-        // Add all other selections in their original order, skipping the new primary
-        for (i, range) in ranges.iter().enumerate() {
-            if i != new_primary {
-                reordered_ranges.push(range.clone());
-            }
-        }
+        // Update the global primary index
+        set_primary_selection_index(new_primary_index);
         
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.select_ranges(reordered_ranges);
-        });
+        // Note: We don't change the actual selections since Zed sorts them by position
+        // The primary index is tracked separately and used by remove_primary_selection
     });
 }
 

@@ -17,7 +17,6 @@ mod object;
 mod regex_prompt;
 mod replace;
 mod rewrap;
-mod selection;
 mod state;
 mod surrounds;
 mod visual;
@@ -736,7 +735,6 @@ impl Vim {
             replace::register(editor, cx);
             indent::register(editor, cx);
             rewrap::register(editor, cx);
-            selection::register(editor, cx);
             object::register(editor, cx);
             visual::register(editor, cx);
             change_list::register(editor, cx);

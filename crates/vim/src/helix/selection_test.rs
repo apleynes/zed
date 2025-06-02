@@ -4,6 +4,7 @@ use crate::{
         KeepPrimarySelection, RemovePrimarySelection, TrimSelections, AlignSelections,
         CopySelectionOnNextLine, CopySelectionOnPrevLine, RotateSelectionsForward,
         RotateSelectionsBackward, RotateSelectionContentsForward, RotateSelectionContentsBackward,
+        SplitSelectionOnRegex,
     },
     test::VimTestContext,
     Mode,
@@ -298,4 +299,218 @@ async fn test_selection_workflow_comprehensive(cx: &mut gpui::TestAppContext) {
         }
         
         const name = 'test';"}, Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_rotate_selections_integration_comprehensive(cx: &mut gpui::TestAppContext) {
+    // Manually developer-verified test case. Coding assistant: DO NOT MODIFY.
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Reset primary index to match Helix behavior when new selections are created
+    crate::helix::selections::reset_primary_selection_index();
+
+    // Test the specific workflow: 5 words selected, rotate twice, then drop 3rd selection
+    cx.set_state("«oneˇ» «twoˇ» «threeˇ» «fourˇ» «fiveˇ»", Mode::HelixNormal);
+    
+    // Initial state: [one, two, three, four, five] - one is primary (first)
+    
+    // First rotation forward - cyclic rotation: move first to end
+    cx.dispatch_action(RotateSelectionsForward);
+    // Expected: two is now primary (first)
+    cx.assert_state("«oneˇ» «twoˇ» «threeˇ» «fourˇ» «fiveˇ»", Mode::HelixNormal);
+    
+    // Second rotation forward - move first to end again
+    cx.dispatch_action(RotateSelectionsForward);
+    // Expected: three is now primary (first)
+    cx.assert_state("«oneˇ» «twoˇ» «threeˇ» «fourˇ» «fiveˇ»", Mode::HelixNormal);
+    
+    // Now remove primary selection (should remove "three" selection, which is now first)
+    cx.dispatch_action(RemovePrimarySelection);
+    
+    // Expected: Should remove "three" selection (the current primary) and leave the rest
+    cx.assert_state("«oneˇ» «twoˇ» three «fourˇ» «fiveˇ»", Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_rotate_selections_primary_tracking(cx: &mut gpui::TestAppContext) {
+    // Manually developer-verified test case. Coding assistant: DO NOT MODIFY.
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Test that primary selection tracking works correctly
+    cx.set_state("«aˇ» «bˇ» «cˇ»", Mode::HelixNormal);
+    
+    // Rotate forward: selection (not visible with cursor and selection markings, only after removing primary will the effect be visible)
+    cx.dispatch_action(RotateSelectionsForward);
+    cx.assert_state("«aˇ» «bˇ» «cˇ»", Mode::HelixNormal);
+    
+    // Remove primary (should remove "b" selection)
+    cx.dispatch_action(RemovePrimarySelection);
+    cx.assert_state("«aˇ» b «cˇ»", Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_merge_selections_comprehensive(cx: &mut gpui::TestAppContext) {
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Test merge selections with multiple non-adjacent selections
+    cx.set_state("«oneˇ» middle «twoˇ» gap «threeˇ»", Mode::HelixNormal);
+    
+    cx.dispatch_action(MergeSelections);
+    
+    // Should create one selection spanning from start of first to end of last
+    // This should include all the text in between, not just the selected parts
+    cx.assert_state("«one middle two gap threeˇ»", Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_merge_selections_with_gaps(cx: &mut gpui::TestAppContext) {
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Test with larger gaps between selections
+    cx.set_state(indoc! {"
+        «firstˇ»
+        
+        some text here
+        
+        «secondˇ»
+        
+        more text
+        
+        «thirdˇ»"}, Mode::HelixNormal);
+    
+    cx.dispatch_action(MergeSelections);
+    
+    // Should merge everything from first selection to last selection
+    cx.assert_state(indoc! {"
+        «first
+        
+        some text here
+        
+        second
+        
+        more text
+        
+        thirdˇ»"}, Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_merge_selections_key_binding(cx: &mut gpui::TestAppContext) {
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Test that Alt-- (merge selections) key binding works
+    cx.set_state("«oneˇ» and «twoˇ» and «threeˇ»", Mode::HelixNormal);
+    
+    // Simulate the actual key binding: alt-minus
+    cx.simulate_keystrokes("alt-minus");
+    
+    // Should merge all selections into one
+    cx.assert_state("«one and two and threeˇ»", Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_rotate_selections_key_binding(cx: &mut gpui::TestAppContext) {
+    // Manually developer-verified test case. Coding assistant: DO NOT MODIFY.
+    // You can't really visually see the change because it only changes the 
+    // primary selection index, not the actual selections.
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Test that ( and ) (rotate selections) key bindings work
+    cx.set_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);
+    
+    // Simulate the actual key binding: )
+    cx.simulate_keystrokes(")");
+    
+    // Should rotate selections forward
+    cx.assert_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);
+    
+    // Simulate the actual key binding: (
+    cx.simulate_keystrokes("(");
+    
+    // Should rotate selections backward
+    cx.assert_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_remove_primary_selection_key_binding(cx: &mut gpui::TestAppContext) {
+    // Manually developer-verified test case. Coding assistant: DO NOT MODIFY.
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Test that Alt-, (remove primary selection) key binding works
+    cx.set_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);
+    
+    // Simulate the actual key binding: alt-,
+    cx.simulate_keystrokes("alt-,");
+    
+    // Should remove the primary (first) selection
+    cx.assert_state("one «twoˇ» «threeˇ»", Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_user_reported_rotate_and_remove_workflow(cx: &mut gpui::TestAppContext) {
+    // Manually developer-verified test case. Coding assistant: DO NOT MODIFY.
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    // Reset primary index to match Helix behavior when new selections are created
+    crate::helix::selections::reset_primary_selection_index();
+
+    // Test the exact workflow the user described:
+    // 5 words selected, rotate twice, then remove 3rd selection
+    cx.set_state("«oneˇ» «twoˇ» «threeˇ» «fourˇ» «fiveˇ»", Mode::HelixNormal);
+    
+    // First rotation forward: )
+    cx.simulate_keystrokes(")");
+    // Expected: two is now primary
+    cx.assert_state("«oneˇ» «twoˇ» «threeˇ» «fourˇ» «fiveˇ»", Mode::HelixNormal);
+    
+    // Second rotation forward: )
+    cx.simulate_keystrokes(")");
+    // Expected: three is now primary
+    cx.assert_state("«oneˇ» «twoˇ» «threeˇ» «fourˇ» «fiveˇ»", Mode::HelixNormal);
+    
+    // Now remove primary selection: alt-,
+    // This should remove "three" selection (the 3rd original selection, now primary)
+    cx.simulate_keystrokes("alt-,");
+    
+    // Expected: Should remove "three" selection and leave the rest
+    cx.assert_state("«oneˇ» «twoˇ» three «fourˇ» «fiveˇ»", Mode::HelixNormal);
+}
+
+#[gpui::test]
+async fn test_rotate_selections_reset_primary_index_after_new_selections(cx: &mut gpui::TestAppContext) {
+    // Manually developer-verified test case. Coding assistant: Complete this test.
+    let mut cx = VimTestContext::new(cx, true).await;
+
+    crate::helix::selections::reset_primary_selection_index();
+
+    // Test that Alt-, (remove primary selection) key binding works
+    cx.set_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);
+    
+    // Simulate the actual key binding: alt-,
+    cx.simulate_keystrokes("alt-,");
+    
+    // Should remove the primary (first) selection
+    cx.assert_state("one «twoˇ» «threeˇ»", Mode::HelixNormal);
+
+    // Select whole line with x (creates new selection)
+    cx.simulate_keystrokes("x");
+
+    // Should create one selection
+    cx.assert_state("«one two threeˇ»", Mode::HelixNormal);
+
+    // Use regex split to split on space
+    // TODO
+
+    // Use the split selection on regex functionality (S command in Helix)
+    // This should split the line selection on spaces to create three selections again
+    cx.dispatch_action(crate::helix::SplitSelectionOnRegex);
+    // The split action should automatically create the three word selections and reset primary index
+    // We expect the split to work correctly and create three selections
+    cx.assert_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);
+
+    // Remove primary selection (should remove selection on "one" now since primary index was reset by 
+    // creating new selections via split)
+    cx.simulate_keystrokes("alt-,");
+
+    // Should remove selection on "one" (the first selection, since primary index was reset to 0)
+    cx.assert_state("one «twoˇ» «threeˇ»", Mode::HelixNormal);
 }

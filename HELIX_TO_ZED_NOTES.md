@@ -966,91 +966,26 @@ These discrepancies highlight the fundamental differences between Helix's select
 
 ---
 
-## ✅ PHASE 4: SELECTION OPERATIONS IMPLEMENTATION (COMPLETED)
+## 🚨 CRITICAL ISSUE DISCOVERED: Action Registration Conflicts
 
-### Status: All Selection Operations Working Correctly ✅
+**Problem**: The merge selections (`alt--`) and rotate selections (`(`, `)`) are not working because there are **TWO different sets of actions with the same names** being registered, and the old vim actions are overriding the new helix actions.
 
-**MAJOR ACHIEVEMENT**: Successfully implemented all Helix selection operations with complete test coverage and behavioral parity.
+**Root Cause**: In `zed/crates/vim/src/vim.rs`, the registration order is:
+```rust
+helix::register(editor, cx);        // Line 731 - registers helix actions
+// ... other registrations ...
+selection::register(editor, cx);    // Line 738 - OVERRIDES helix actions!
+```
 
-### ✅ ALL SELECTION OPERATIONS IMPLEMENTED AND TESTED
+**Conflicting Actions**:
+- `RotateSelectionsForward` / `RotateSelectionsBackward` 
+- `MergeSelections` / `MergeConsecutiveSelections`
+- `CollapseSelection`, `FlipSelections`, etc.
 
-1. **✅ `;` (collapse selection)** - WORKING
-   - Correctly positions cursor using Helix semantics
-   - Handles forward/backward selections properly
-   - Applied +1 adjustment for Zed cursor positioning
+**Evidence**: Integration tests show:
+- `alt--` (merge selections) does nothing - selections remain unchanged
+- `)` (rotate selections) rotates **content** instead of **selections** (wrong action being called)
 
-2. **✅ Rotate selections (`(`, `)`)** - WORKING
-   - Correctly rotates primary selection index
-   - Reorders selections to make new primary first (Zed adaptation)
-   - Maintains selection positions while changing primary
+**Solution Required**: Remove the conflicting action registrations from the old `selection.rs` module since the helix implementations are the correct ones for Helix mode.
 
-3. **✅ Merge selections (`Alt--`)** - WORKING
-   - Merges all selections into one spanning from first to last
-   - Follows exact Helix `merge_ranges()` behavior
-
-4. **✅ Merge consecutive selections** - WORKING
-   - Correctly identifies consecutive selections (end of one == start of next)
-   - Uses Helix's `dedup_by` logic for merging
-   - Preserves non-consecutive selections
-
-5. **✅ Keep primary selection** - WORKING
-   - Keeps only the primary (first) selection
-   - Removes all other selections
-
-6. **✅ Remove primary selection** - WORKING
-   - Removes the primary (first) selection
-   - Keeps all other selections
-
-7. **✅ Trim selections** - WORKING
-   - Removes leading and trailing whitespace from selections
-   - Handles multiple selections correctly
-
-8. **✅ Align selections** - WORKING
-   - Aligns all selections to the width of the longest one
-   - Adds spaces to pad shorter selections
-
-9. **✅ Rotate selection contents** - WORKING
-   - Rotates the text content between selections
-   - Maintains selection positions while swapping content
-
-10. **✅ Copy selection on line** - WORKING
-    - Copies selections to adjacent lines
-    - Handles line boundary conditions correctly
-
-### ✅ COMPREHENSIVE TEST COVERAGE
-
-**22 selection operation tests** all passing:
-- `test_collapse_selection_single` ✅
-- `test_collapse_selection_multiple` ✅
-- `test_flip_selections_single` ✅
-- `test_flip_selections_multiple` ✅
-- `test_merge_selections_adjacent` ✅
-- `test_merge_selections_overlapping` ✅
-- `test_merge_consecutive_selections` ✅
-- `test_keep_primary_selection` ✅
-- `test_remove_primary_selection` ✅
-- `test_trim_selections_whitespace` ✅
-- `test_trim_selections_multiple` ✅
-- `test_align_selections_basic` ✅
-- `test_copy_selection_on_next_line` ✅
-- `test_copy_selection_on_prev_line` ✅
-- `test_copy_selection_line_boundary` ✅
-- `test_rotate_selections_forward` ✅
-- `test_rotate_selections_backward` ✅
-- `test_rotate_selection_contents_forward` ✅
-- `test_rotate_selection_contents_backward` ✅
-- `test_selection_operations_empty_selections` ✅
-- `test_selection_operations_single_selection` ✅
-- `test_selection_workflow_comprehensive` ✅
-
-### ✅ FINAL DISCREPANCY RESOLUTION
-
-**Critical Discovery**: The same +1 adjustment needed for find character movements was also required for collapse selection. This confirms that **Zed consistently positions the cursor at `head-1` for all selection operations**, requiring systematic +1 adjustments when converting from Helix's cursor positioning system.
-
-**Pattern Established**: 
-- Helix calculates cursor position semantically
-- Zed displays cursor at `head-1` 
-- Integration layer must add +1 to bridge this gap
-- This applies to: find character movements, collapse selection, and potentially other cursor positioning operations
-
----
+### ✅ CRITICAL BUG FIX: Collapse Selection Cursor Positioning (FINAL FIX)

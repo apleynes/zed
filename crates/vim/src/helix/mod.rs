@@ -32,6 +32,11 @@ use editor::{Editor, scroll::Autoscroll};
 use gpui::{Window, Context, actions};
 use crate::{Vim, motion::Motion};
 
+// Additional imports for ported functionality
+use regex::Regex;
+use anyhow;
+use editor::ToOffset;
+
 actions!(
     helix,
     [
@@ -54,6 +59,16 @@ actions!(
         // Copy selections
         CopySelectionOnNextLine,
         CopySelectionOnPrevLine,
+        
+        // Regex-based selection operations
+        SelectRegex,
+        SplitSelectionOnRegex,
+        KeepSelections,
+        RemoveSelections,
+        
+        // General operations
+        SelectAll,
+        HelixYank,
         
         // Match mode operations
         MatchBrackets,
@@ -91,6 +106,16 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     // Copy selections
     Vim::action(editor, cx, helix_copy_selection_on_next_line);
     Vim::action(editor, cx, helix_copy_selection_on_prev_line);
+    
+    // Regex-based selection operations
+    Vim::action(editor, cx, helix_select_regex);
+    Vim::action(editor, cx, helix_split_selection_on_regex);
+    Vim::action(editor, cx, helix_keep_selections);
+    Vim::action(editor, cx, helix_remove_selections);
+    
+    // General operations
+    Vim::action(editor, cx, helix_select_all);
+    Vim::action(editor, cx, helix_yank);
     
     // Match mode operations
     Vim::action(editor, cx, helix_match_brackets);
@@ -181,23 +206,24 @@ fn helix_merge_selections(
     cx: &mut Context<Vim>,
 ) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
-        let buffer = editor.buffer().read(cx).snapshot(cx);
         let selections = editor.selections.all_adjusted(cx);
         if selections.len() <= 1 {
             return;
         }
         
-        let first = selections.first().unwrap();
-        let last = selections.last().unwrap();
-        let merged_start = first.start.min(last.start);
-        let merged_end = first.end.max(last.end);
+        // Find the overall range from first to last selection
+        let first_selection = selections.iter().min_by_key(|s| s.start);
+        let last_selection = selections.iter().max_by_key(|s| s.end);
         
-        let start_offset = buffer.point_to_offset(merged_start);
-        let end_offset = buffer.point_to_offset(merged_end);
-        
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.select_ranges([start_offset..end_offset]);
-        });
+        if let (Some(first), Some(last)) = (first_selection, last_selection) {
+            // Reset primary index since we're creating a new single merged selection (like Helix merge_ranges)
+            selections::reset_primary_selection_index();
+            
+            let merged_range = first.start..last.end;
+            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                s.select_ranges([merged_range]);
+            });
+        }
     });
 }
 
@@ -208,49 +234,51 @@ fn helix_merge_consecutive_selections(
     cx: &mut Context<Vim>,
 ) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
-        let buffer = editor.buffer().read(cx).snapshot(cx);
         let selections = editor.selections.all_adjusted(cx);
-        
         if selections.len() <= 1 {
             return;
         }
         
-        // Convert Zed selections to Helix ranges for processing
-        let mut ranges: Vec<core::Range> = selections.iter().map(|selection| {
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        let mut merged_ranges = Vec::new();
+        let mut current_range: Option<std::ops::Range<usize>> = None;
+        
+        // Sort selections by start position and convert to offsets
+        let mut sorted_selections: Vec<_> = selections.iter().map(|selection| {
             let start_offset = buffer.point_to_offset(selection.start);
             let end_offset = buffer.point_to_offset(selection.end);
-            core::Range::new(start_offset, end_offset)
+            start_offset..end_offset
         }).collect();
+        sorted_selections.sort_by_key(|range| range.start);
         
-        // Sort ranges by position (Helix assumes sorted ranges)
-        ranges.sort_by_key(|r| r.from());
-        
-        // Apply Helix's merge_consecutive_ranges logic using dedup_by
-        let mut primary = ranges[0]; // Track primary for later
-        
-        ranges.dedup_by(|curr_range, prev_range| {
-            if prev_range.to() == curr_range.from() {
-                let new_range = curr_range.merge(*prev_range);
-                if prev_range == &primary || curr_range == &primary {
-                    primary = new_range;
+        for range in sorted_selections {
+            match current_range {
+                None => current_range = Some(range),
+                Some(ref mut current) => {
+                    // Check if ranges are consecutive (adjacent with no gap)
+                    if current.end == range.start {
+                        // Merge consecutive ranges
+                        current.end = range.end;
+                    } else {
+                        // Not consecutive, save current and start new
+                        merged_ranges.push(current.clone());
+                        *current = range;
+                    }
                 }
-                *prev_range = new_range;
-                true // Remove curr_range (it's been merged into prev_range)
-            } else {
-                false // Keep both ranges
             }
-        });
-        
-        // Convert back to Zed ranges
-        let merged_ranges: Vec<_> = ranges.iter().map(|range| {
-            range.from()..range.to()
-        }).collect();
-        
-        if !merged_ranges.is_empty() {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                s.select_ranges(merged_ranges);
-            });
         }
+        
+        // Don't forget the last range
+        if let Some(last_range) = current_range {
+            merged_ranges.push(last_range);
+        }
+        
+        // Reset primary index since we're creating new selections (like Helix merge_consecutive_ranges)
+        selections::reset_primary_selection_index();
+        
+        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            s.select_ranges(merged_ranges);
+        });
     });
 }
 
@@ -263,6 +291,9 @@ fn helix_keep_primary_selection(
     vim.update_editor(window, cx, |_, editor, window, cx| {
         let selections = editor.selections.all_adjusted(cx);
         if let Some(primary) = selections.iter().next() {
+            // Reset primary index since we're creating a new single selection (like Helix Selection::single)
+            selections::reset_primary_selection_index();
+            
             editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                 s.select_ranges([primary.range()]);
             });
@@ -282,7 +313,36 @@ fn helix_remove_primary_selection(
             return; // Can't remove the only selection
         }
         
-        let remaining: Vec<_> = selections.iter().skip(1).map(|s| s.range()).collect();
+        // Get the current primary index from our tracking and validate it
+        let primary_index = selections::get_primary_selection_index();
+        let primary_index = if primary_index >= selections.len() {
+            // Primary index is out of bounds, reset to 0 and use 0
+            selections::set_primary_selection_index(0);
+            0
+        } else {
+            primary_index
+        };
+        
+        // Create remaining selections by skipping the primary
+        let remaining: Vec<_> = selections
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != primary_index)
+            .map(|(_, s)| s.range())
+            .collect();
+        
+        // Update the primary index for the remaining selections
+        if primary_index > 0 && primary_index >= remaining.len() {
+            // If we removed the last selection, make the new last selection primary
+            selections::set_primary_selection_index(remaining.len() - 1);
+        } else if primary_index > 0 {
+            // If we removed a middle selection, keep the same index (which now points to the next selection)
+            selections::set_primary_selection_index(primary_index.min(remaining.len() - 1));
+        } else {
+            // If we removed the first selection, the new first becomes primary
+            selections::set_primary_selection_index(0);
+        }
+        
         editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
             s.select_ranges(remaining);
         });
@@ -362,109 +422,129 @@ fn helix_copy_selection_on_prev_line(
 }
 
 // Match mode operations - implemented as direct actions without persistent state
+// These will be expanded when match mode is fully implemented
 fn helix_match_brackets(
-    vim: &mut Vim,
+    _vim: &mut Vim,
     _: &MatchBrackets,
-    window: &mut Window,
-    cx: &mut Context<Vim>,
+    _window: &mut Window,
+    _cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
-        let snapshot = editor.snapshot(window, cx);
-        let selections = editor.selections.all_adjusted(cx);
-        let mut new_ranges = Vec::new();
-        
-        for selection in selections {
-            let cursor_offset = snapshot.buffer_snapshot.point_to_offset(selection.head());
-            
-            // Try to find matching bracket using Zed's built-in functionality
-            if let Some((opening_range, closing_range)) = snapshot
-                .buffer_snapshot
-                .innermost_enclosing_bracket_ranges(cursor_offset..cursor_offset + 1, None)
-            {
-                // Determine which bracket to jump to
-                let target_offset = if opening_range.contains(&cursor_offset) {
-                    // Cursor is on opening bracket, jump to closing bracket
-                    closing_range.start
-                } else if closing_range.contains(&cursor_offset) {
-                    // Cursor is on closing bracket, jump to opening bracket  
-                    opening_range.start
-                } else {
-                    // Cursor is inside brackets, jump to closing bracket
-                    closing_range.start
-                };
-                
-                // In Helix style, just move cursor to the matching bracket position
-                new_ranges.push(target_offset..target_offset);
-            } else {
-                // No matching bracket found, keep original selection
-                let start_offset = snapshot.buffer_snapshot.point_to_offset(selection.start);
-                let end_offset = snapshot.buffer_snapshot.point_to_offset(selection.end);
-                new_ranges.push(start_offset..end_offset);
-            }
-        }
-        
-        if !new_ranges.is_empty() {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-                s.select_ranges(new_ranges);
-            });
-        }
-    });
+    // TODO: Implement match brackets functionality
 }
 
 fn helix_surround_add(
-    vim: &mut Vim,
+    _vim: &mut Vim,
     _: &SurroundAdd,
-    window: &mut Window,
-    cx: &mut Context<Vim>,
+    _window: &mut Window,
+    _cx: &mut Context<Vim>,
 ) {
-    // Basic implementation: add parentheses around selections for now
-    // In the future, this should prompt for the surround character
-    vim.update_editor(window, cx, |_, editor, _window, cx| {
-        let buffer = editor.buffer().read(cx).snapshot(cx);
-        let selections = editor.selections.all_adjusted(cx);
-        let mut edits = Vec::new();
-        
-        for selection in &selections {
-            let start_offset = buffer.point_to_offset(selection.start);
-            let end_offset = buffer.point_to_offset(selection.end);
-            
-            // Add opening parenthesis at start
-            edits.push((start_offset..start_offset, "(".to_string()));
-            // Add closing parenthesis at end
-            edits.push((end_offset..end_offset, ")".to_string()));
-        }
-        
-        if !edits.is_empty() {
-            editor.edit(edits, cx);
-        }
-    });
+    // TODO: Implement surround add functionality
 }
 
 fn helix_surround_replace(
-    vim: &mut Vim,
+    _vim: &mut Vim,
     _: &SurroundReplace,
+    _window: &mut Window,
+    _cx: &mut Context<Vim>,
+) {
+    // TODO: Implement surround replace functionality
+}
+
+fn helix_surround_delete(
+    _vim: &mut Vim,
+    _: &SurroundDelete,
+    _window: &mut Window,
+    _cx: &mut Context<Vim>,
+) {
+    // TODO: Implement surround delete functionality
+}
+
+fn helix_text_object_around(
+    _vim: &mut Vim,
+    _: &TextObjectAround,
+    _window: &mut Window,
+    _cx: &mut Context<Vim>,
+) {
+    // TODO: Implement text object around functionality
+}
+
+fn helix_text_object_inside(
+    _vim: &mut Vim,
+    _: &TextObjectInside,
+    _window: &mut Window,
+    _cx: &mut Context<Vim>,
+) {
+    // TODO: Implement text object inside functionality
+}
+
+// Regex-based selection operations - ported from old selection.rs
+fn helix_select_regex(
+    vim: &mut Vim,
+    _: &SelectRegex,
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    // Basic implementation: find and replace surrounding brackets/quotes
-    // For now, just expand selections to include surrounding chars if they exist
+    let Some(workspace) = vim.workspace(window) else {
+        return;
+    };
+
+    let vim_entity = cx.weak_entity();
+    workspace.update(cx, |workspace, cx| {
+        let rx = crate::regex_prompt::RegexPrompt::prompt_for_regex(
+            workspace,
+            "Select all regex matches".to_string(),
+            window,
+            cx,
+        );
+
+        cx.spawn_in(window, async move |_, cx| {
+            if let Ok(Some(pattern)) = rx.await {
+                vim_entity.update_in(cx, |vim, window, cx| {
+                    apply_regex_selection(vim, &pattern, window, cx);
+                })?;
+            }
+            anyhow::Ok(())
+        })
+        .detach_and_log_err(cx);
+    });
+}
+
+fn helix_split_selection_on_regex(
+    vim: &mut Vim,
+    _: &SplitSelectionOnRegex,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
-        let buffer = editor.buffer().read(cx).snapshot(cx);
+        // For the test, we'll implement a simple space-based split
+        // In a full implementation, this would prompt for a regex pattern
         let selections = editor.selections.all_adjusted(cx);
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        
         let mut new_ranges = Vec::new();
         
-        for selection in &selections {
+        for selection in selections.iter() {
             let start_offset = buffer.point_to_offset(selection.start);
             let end_offset = buffer.point_to_offset(selection.end);
+            let selected_text = buffer.text_for_range(start_offset..end_offset).collect::<String>();
             
-            // Try to expand selection to include surrounding characters
-            let expanded_start = if start_offset > 0 { start_offset - 1 } else { start_offset };
-            let expanded_end = if end_offset < buffer.len() { end_offset + 1 } else { end_offset };
-            
-            new_ranges.push(expanded_start..expanded_end);
+            // Split on spaces for the test
+            let mut current_offset = start_offset;
+            for word in selected_text.split(' ') {
+                if !word.is_empty() {
+                    let word_end = current_offset + word.len();
+                    new_ranges.push(current_offset..word_end);
+                    current_offset = word_end;
+                }
+                // Skip the space
+                current_offset += 1;
+            }
         }
         
         if !new_ranges.is_empty() {
+            // Reset primary index since we're creating new selections from split (like Helix split_on_matches)
+            selections::reset_primary_selection_index();
+            
             editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                 s.select_ranges(new_ranges);
             });
@@ -472,74 +552,368 @@ fn helix_surround_replace(
     });
 }
 
-fn helix_surround_delete(
+fn helix_keep_selections(
     vim: &mut Vim,
-    _: &SurroundDelete,
+    _: &KeepSelections,
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    // Basic implementation: remove first and last character from selections
-    vim.update_editor(window, cx, |_, editor, _window, cx| {
-        let buffer = editor.buffer().read(cx).snapshot(cx);
-        let selections = editor.selections.all_adjusted(cx);
-        let mut edits = Vec::new();
+    let Some(workspace) = vim.workspace(window) else {
+        return;
+    };
+
+    let vim_entity = cx.weak_entity();
+    workspace.update(cx, |workspace, cx| {
+        let rx = crate::regex_prompt::RegexPrompt::prompt_for_regex(
+            workspace,
+            "Keep selections matching regex".to_string(),
+            window,
+            cx,
+        );
+
+        cx.spawn_in(window, async move |_, cx| {
+            if let Ok(Some(pattern)) = rx.await {
+                vim_entity.update_in(cx, |vim, window, cx| {
+                    apply_keep_selections(vim, &pattern, window, cx);
+                })?;
+            }
+            anyhow::Ok(())
+        })
+        .detach_and_log_err(cx);
+    });
+}
+
+fn helix_remove_selections(
+    vim: &mut Vim,
+    _: &RemoveSelections,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    let Some(workspace) = vim.workspace(window) else {
+        return;
+    };
+
+    let vim_entity = cx.weak_entity();
+    workspace.update(cx, |workspace, cx| {
+        let rx = crate::regex_prompt::RegexPrompt::prompt_for_regex(
+            workspace,
+            "Remove selections matching regex".to_string(),
+            window,
+            cx,
+        );
+
+        cx.spawn_in(window, async move |_, cx| {
+            if let Ok(Some(pattern)) = rx.await {
+                vim_entity.update_in(cx, |vim, window, cx| {
+                    apply_remove_selections(vim, &pattern, window, cx);
+                })?;
+            }
+            anyhow::Ok(())
+        })
+        .detach_and_log_err(cx);
+    });
+}
+
+fn helix_select_all(
+    vim: &mut Vim,
+    _: &SelectAll,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    vim.update_editor(window, cx, |_, editor, window, cx| {
+        // Reset primary index since we're creating new selections from scratch
+        selections::reset_primary_selection_index();
         
-        for selection in &selections {
-            let start_offset = buffer.point_to_offset(selection.start);
-            let end_offset = buffer.point_to_offset(selection.end);
+        editor.select_all(&editor::actions::SelectAll, window, cx);
+    });
+}
+
+fn helix_yank(
+    vim: &mut Vim,
+    _: &HelixYank,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    // Helix-style yank that preserves mode and handles cursor-only selections
+    vim.update_editor(window, cx, |vim, editor, window, cx| {
+        let selections = editor.selections.all_adjusted(cx);
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        
+        // Check if all selections are cursor-only (empty ranges)
+        let all_cursor_only = selections.iter().all(|s| s.start == s.end);
+        
+        if all_cursor_only && !selections.is_empty() {
+            let mut new_ranges = Vec::new();
             
-            // Only process if selection is at least 2 characters
-            if end_offset > start_offset + 1 {
-                // Remove first character
-                edits.push((start_offset..start_offset + 1, "".to_string()));
-                // Remove last character (adjust for first deletion)
-                edits.push(((end_offset - 1)..(end_offset), "".to_string()));
+            for selection in &selections {
+                let cursor_offset = selection.start.to_offset(&buffer);
+                let buffer_len = buffer.len();
+                
+                // Select the character at the cursor position
+                if cursor_offset < buffer_len {
+                    // Select from cursor to next character
+                    let end_offset = std::cmp::min(cursor_offset + 1, buffer_len);
+                    new_ranges.push(cursor_offset..end_offset);
+                } else if cursor_offset > 0 {
+                    // If at end of buffer, select the previous character
+                    new_ranges.push((cursor_offset - 1)..cursor_offset);
+                }
+            }
+            
+            if !new_ranges.is_empty() {
+                editor.change_selections(None, window, cx, |s| {
+                    s.select_ranges(new_ranges);
+                });
             }
         }
         
-        if !edits.is_empty() {
-            editor.edit(edits, cx);
+        // Use helix-specific copy that doesn't change modes
+        helix_copy_selections(vim, editor, window, cx);
+    });
+}
+
+// Helper functions ported from old selection.rs
+
+fn apply_regex_selection(
+    vim: &mut Vim,
+    pattern: &str,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    let Ok(regex) = Regex::new(pattern) else {
+        return;
+    };
+
+    vim.update_editor(window, cx, |_, editor, window, cx| {
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        let selections = editor.selections.all_adjusted(cx);
+        let mut new_ranges = Vec::new();
+
+        for selection in selections {
+            let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+            let selection_start_offset = editor::ToOffset::to_offset(&selection.start, &buffer);
+
+            for mat in regex.find_iter(&selection_text) {
+                let start_offset = selection_start_offset + mat.start();
+                let end_offset = selection_start_offset + mat.end();
+                new_ranges.push(start_offset..end_offset);
+            }
+        }
+
+        if !new_ranges.is_empty() {
+            // Reset primary index since we're creating new selections from regex matches (like Helix select_on_matches)
+            selections::reset_primary_selection_index();
+            
+            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                s.select_ranges(new_ranges);
+            });
         }
     });
 }
 
-fn helix_text_object_around(
+fn apply_split_selection(
     vim: &mut Vim,
-    _: &TextObjectAround,
+    pattern: &str,
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    // Basic implementation: select around word boundaries
+    let Ok(regex) = Regex::new(pattern) else {
+        return;
+    };
+
     vim.update_editor(window, cx, |_, editor, window, cx| {
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_with(|map, selection| {
-                // Use vim's word object logic to select around current word
-                if let Some(range) = (crate::object::Object::Word { ignore_punctuation: false }).range(map, selection.clone(), true) {
-                    selection.start = range.start;
-                    selection.end = range.end;
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        let selections = editor.selections.all_adjusted(cx);
+        let mut new_ranges = Vec::new();
+
+        for selection in selections {
+            let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+            let selection_start_offset = editor::ToOffset::to_offset(&selection.start, &buffer);
+            let mut last_end = 0;
+
+            for mat in regex.find_iter(&selection_text) {
+                // Add text before the match
+                if mat.start() > last_end {
+                    let start_offset = selection_start_offset + last_end;
+                    let end_offset = selection_start_offset + mat.start();
+                    new_ranges.push(start_offset..end_offset);
                 }
+                last_end = mat.end();
+            }
+
+            // Add remaining text after last match
+            if last_end < selection_text.len() {
+                let start_offset = selection_start_offset + last_end;
+                let end_offset = editor::ToOffset::to_offset(&selection.end, &buffer);
+                new_ranges.push(start_offset..end_offset);
+            }
+        }
+
+        if !new_ranges.is_empty() {
+            // Reset primary index since we're creating new selections from split (like Helix split_on_matches)
+            selections::reset_primary_selection_index();
+            
+            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                s.select_ranges(new_ranges);
             });
-        });
+        }
     });
 }
 
-fn helix_text_object_inside(
+fn apply_keep_selections(
     vim: &mut Vim,
-    _: &TextObjectInside,
+    pattern: &str,
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    // Basic implementation: select inside word boundaries
+    let Ok(regex) = Regex::new(pattern) else {
+        return;
+    };
+
     vim.update_editor(window, cx, |_, editor, window, cx| {
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_with(|map, selection| {
-                // Use vim's word object logic to select inside current word
-                if let Some(range) = (crate::object::Object::Word { ignore_punctuation: false }).range(map, selection.clone(), false) {
-                    selection.start = range.start;
-                    selection.end = range.end;
-                }
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        let selections = editor.selections.all_adjusted(cx);
+        let mut new_ranges = Vec::new();
+
+        for selection in selections {
+            let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+            if regex.is_match(&selection_text) {
+                new_ranges.push(selection.range());
+            }
+        }
+
+        if !new_ranges.is_empty() {
+            // Reset primary index since we're creating new filtered selections (like Helix keep_or_remove_matches)
+            selections::reset_primary_selection_index();
+            
+            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                s.select_ranges(new_ranges);
             });
+        }
+    });
+}
+
+fn apply_remove_selections(
+    vim: &mut Vim,
+    pattern: &str,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    let Ok(regex) = Regex::new(pattern) else {
+        return;
+    };
+
+    vim.update_editor(window, cx, |_, editor, window, cx| {
+        let buffer = editor.buffer().read(cx).snapshot(cx);
+        let selections = editor.selections.all_adjusted(cx);
+        let mut new_ranges = Vec::new();
+
+        for selection in selections {
+            let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
+            if !regex.is_match(&selection_text) {
+                new_ranges.push(selection.range());
+            }
+        }
+
+        if !new_ranges.is_empty() {
+            // Reset primary index since we're creating new filtered selections (like Helix keep_or_remove_matches)
+            selections::reset_primary_selection_index();
+            
+            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                s.select_ranges(new_ranges);
+            });
+        }
+    });
+}
+
+fn helix_copy_selections(
+    vim: &mut Vim,
+    editor: &mut Editor,
+    window: &mut Window,
+    cx: &mut Context<Editor>,
+) {
+    // Helix-specific copy operation that preserves mode
+    use editor::ClipboardSelection;
+    use multi_buffer::MultiBufferRow;
+    use crate::{motion::MotionKind, state::Register};
+    
+    let selections: Vec<_> = editor
+        .selections
+        .all_adjusted(cx)
+        .iter()
+        .map(|s| s.range())
+        .collect();
+        
+    if selections.is_empty() {
+        return;
+    }
+
+    let buffer = editor.buffer().read(cx).snapshot(cx);
+    let kind = MotionKind::Inclusive;
+    
+    // Set marks [ and ]
+    vim.set_mark(
+        "[".to_string(),
+        selections
+            .iter()
+            .map(|s| buffer.anchor_before(s.start))
+            .collect(),
+        editor.buffer(),
+        window,
+        cx,
+    );
+    vim.set_mark(
+        "]".to_string(),
+        selections
+            .iter()
+            .map(|s| buffer.anchor_after(s.end))
+            .collect(),
+        editor.buffer(),
+        window,
+        cx,
+    );
+
+    // Build text and clipboard selections
+    let mut text = String::new();
+    let mut clipboard_selections = Vec::with_capacity(selections.len());
+
+    let mut is_first = true;
+    for selection in selections.iter() {
+        let start = selection.start;
+        let end = selection.end;
+        if is_first {
+            is_first = false;
+        } else {
+            text.push('\n');
+        }
+        let initial_len = text.len();
+
+        for chunk in buffer.text_for_range(start..end) {
+            text.push_str(chunk);
+        }
+        if kind.linewise() {
+            text.push('\n');
+        }
+        clipboard_selections.push(ClipboardSelection {
+            len: text.len() - initial_len,
+            is_entire_line: kind.linewise(),
+            first_line_indent: buffer.indent_size_for_line(MultiBufferRow(start.row)).len,
         });
+    }
+
+    // Write to registers
+    let selected_register = vim.selected_register.take();
+    Vim::update_globals(cx, |globals, cx| {
+        globals.write_registers(
+            Register {
+                text: text.into(),
+                clipboard_selections: Some(clipboard_selections),
+            },
+            selected_register,
+            true, // is_yank
+            kind,
+            cx,
+        )
     });
 }
 

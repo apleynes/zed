@@ -387,7 +387,7 @@
       ":": "command_palette::Toggle",
       "shift-d": "vim::DeleteToEndOfLine",
       "shift-j": "vim::JoinLines",
-      "y": "vim::HelixYank",
+      "y": "helix::HelixYank",
       "shift-y": "vim::YankLine",
       "i": "vim::InsertBefore",
       "shift-i": "vim::InsertFirstNonWhitespace",
@@ -466,8 +466,8 @@
       "space y": "editor::Copy",
       "space p": "editor::Paste",
       // Selection manipulation
-      "s": "vim::SelectRegex",
-      "shift-s": "vim::SplitSelectionOnRegex",
+      "s": "helix::SelectRegex",
+      "shift-s": "helix::SplitSelectionOnRegex",
       "alt-minus": "helix::MergeSelections",
       "alt-_": "helix::MergeConsecutiveSelections",
       "&": "helix::AlignSelections",
@@ -482,9 +482,9 @@
       ")": "helix::RotateSelectionsForward",
       "alt-(": "helix::RotateSelectionContentsBackward",
       "alt-)": "helix::RotateSelectionContentsForward",
-      "shift-k": "vim::KeepSelections",
-      "alt-k": "vim::RemoveSelections",
-      "%": "vim::SelectAll",
+      "shift-k": "helix::KeepSelections",
+      "alt-k": "helix::RemoveSelections",
+      "%": "helix::SelectAll",
       // Match mode
       "m m": "helix::MatchBrackets",
       "m s": "helix::SurroundAdd",
@@ -546,7 +546,7 @@
       // Actions on selections
       "d": "vim::HelixDelete",
       "c": "vim::Substitute",
-      "y": "vim::HelixYank",
+      "y": "helix::HelixYank",
       
       // Insert modes (exit select mode first)
       "i": ["helix_mode::ExitSelectMode", "vim::InsertBefore"],

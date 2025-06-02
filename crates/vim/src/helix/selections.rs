@@ -138,6 +138,7 @@ pub fn rotate_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vi
         }).collect();
         
         // Calculate the new primary selection index
+        // In Zed, the primary is always first, so we need to rotate which selection becomes first
         let current_primary = 0; // Primary is always first in Zed's selection list
         let new_primary = if forward {
             (current_primary + 1) % ranges.len()
@@ -150,9 +151,11 @@ pub fn rotate_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vi
         };
         
         // Reorder selections to make the new primary selection first
+        // This simulates Helix's primary_index rotation by reordering the selections
         let mut reordered_ranges = Vec::new();
         reordered_ranges.push(ranges[new_primary].clone());
         
+        // Add all other selections in their original order, skipping the new primary
         for (i, range) in ranges.iter().enumerate() {
             if i != new_primary {
                 reordered_ranges.push(range.clone());

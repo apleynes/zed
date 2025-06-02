@@ -9,4 +9,4 @@ Port helix codebase and logic and tests since those have been 100% tested and in
 
 If running into fundamental behavior issues in library dependencies that differ, set up a debugging harness to understand and isolate any differences in behavior of the underlying libraries. This will help identify the root cause of the issue and ensure that the solution is specific to the problem at hand.
 Helix codebase is at /Users/apleynes/dev/helix and added to the workspace
-Do debug builds only. Do not do a release build since that takes too long.
+Do debug builds only or use cargo check. Do not do a release build since that takes too long.

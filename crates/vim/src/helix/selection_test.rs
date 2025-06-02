@@ -68,20 +68,13 @@ async fn test_merge_selections_overlapping(cx: &mut gpui::TestAppContext) {
 async fn test_merge_consecutive_selections(cx: &mut gpui::TestAppContext) {
     let mut cx = VimTestContext::new(cx, true).await;
 
-    cx.set_state(indoc! {"
-        «lineˇ» one
-        «lineˇ» two  
-        gap here
-        «lineˇ» three"}, Mode::HelixNormal);
+    // Test with truly consecutive selections (adjacent with no gap)
+    cx.set_state("«oneˇ»«twoˇ» and «threeˇ»«fourˇ»", Mode::HelixNormal);
     
     cx.dispatch_action(MergeConsecutiveSelections);
     
-    // Should merge the first two lines (consecutive) but leave the third separate
-    cx.assert_state(indoc! {"
-        «line one
-        lineˇ» two  
-        gap here
-        «lineˇ» three"}, Mode::HelixNormal);
+    // Should merge the consecutive pairs: one+two and three+four
+    cx.assert_state("«onetwoˇ» and «threefourˇ»", Mode::HelixNormal);
 }
 
 #[gpui::test]

@@ -102,13 +102,9 @@ impl Range {
 
     /// Get cursor position (with block cursor semantics like Helix)
     pub fn cursor(&self, text: &Rope) -> usize {
-        // Helix cursor positioning: for forward ranges, cursor is at head - 1 (before the head)
-        // For backward ranges and point ranges, cursor is at head
-        if self.anchor < self.head {
-            // Forward range: cursor is before the head (like Helix's block cursor)
+        if self.head > self.anchor {
             prev_grapheme_boundary(text, self.head)
         } else {
-            // Backward range or point range: cursor is at head
             self.head
         }
     }
@@ -119,6 +115,26 @@ impl Range {
             Self::new(self.anchor, pos)
         } else {
             Self::point(pos)
+        }
+    }
+
+    pub fn contains(&self, pos: usize) -> bool {
+        self.from() <= pos && pos < self.to()
+    }
+
+    /// Merges this range with another range, creating a new range that spans both.
+    /// Ported from Helix core selection.rs
+    pub fn merge(&self, other: Self) -> Self {
+        if self.anchor > self.head && other.anchor > other.head {
+            Range {
+                anchor: self.anchor.max(other.anchor),
+                head: self.head.min(other.head),
+            }
+        } else {
+            Range {
+                anchor: self.from().min(other.from()),
+                head: self.to().max(other.to()),
+            }
         }
     }
 }
@@ -716,7 +732,7 @@ mod tests {
     }
 
     #[test]
-    fn debug_boundary_behavior() {
+    fn test_debug_boundary_behavior() {
         let text = Rope::from(" Starting from");
         let input_range = Range::new(0, 0);
         
@@ -1478,5 +1494,118 @@ mod tests {
         assert_eq!(text.chars().nth(cursor_pos_point), Some('l'));
         
         println!("\n✅ All cursor positioning tests passed!");
+    }
+
+    #[test]
+    fn test_rotate_selections_behavior() {
+        // Test the specific issue: rotate selections should change primary index, not drop selections
+        println!("=== ROTATE SELECTIONS BEHAVIOR TEST ===");
+        
+        // In Helix, rotate_selections changes the primary_index without changing the selections
+        // This is different from Zed where the "primary" is always the first selection
+        
+        // Test case: 3 selections, rotate forward should cycle primary index
+        println!("Test case: 3 selections, rotate forward");
+        println!("Initial: selections=[A, B, C], primary_index=0 (A is primary)");
+        println!("After rotate forward: selections=[A, B, C], primary_index=1 (B is primary)");
+        println!("After rotate forward again: selections=[A, B, C], primary_index=2 (C is primary)");
+        println!("After rotate forward again: selections=[A, B, C], primary_index=0 (A is primary)");
+        
+        // Test case: 3 selections, rotate backward
+        println!("\nTest case: 3 selections, rotate backward");
+        println!("Initial: selections=[A, B, C], primary_index=0 (A is primary)");
+        println!("After rotate backward: selections=[A, B, C], primary_index=2 (C is primary)");
+        println!("After rotate backward again: selections=[A, B, C], primary_index=1 (B is primary)");
+        
+        // The key insight: In Helix, selections stay in the same order, only primary_index changes
+        // In Zed, we need to reorder selections so the new primary is first
+        println!("\nZed adaptation: Reorder selections to make new primary first");
+        println!("Initial: [A, B, C] with A primary");
+        println!("Rotate forward -> [B, A, C] with B primary (B moved to front)");
+        println!("Rotate forward -> [C, A, B] with C primary (C moved to front)");
+    }
+
+    #[test]
+    fn test_merge_selections_behavior() {
+        // Test merge selections behavior from Helix source
+        let text = Rope::from("line1\nline2\nline3\nline4\nline5");
+        
+        println!("=== MERGE SELECTIONS BEHAVIOR TEST ===");
+        println!("Text: '{}'", text.chars().collect::<String>());
+        
+        // Test case 1: Multiple selections should merge into one spanning from first to last
+        println!("\nTest case 1: Multiple selections merge into one");
+        
+        // Simulate selections at different positions
+        let selection1 = Range::new(0, 5);   // "line1"
+        let selection2 = Range::new(6, 11);  // "line2" 
+        let selection3 = Range::new(12, 17); // "line3"
+        
+        println!("Selection 1: {:?} ('{}')", selection1, 
+            text.chars().skip(selection1.from()).take(selection1.len()).collect::<String>());
+        println!("Selection 2: {:?} ('{}')", selection2,
+            text.chars().skip(selection2.from()).take(selection2.len()).collect::<String>());
+        println!("Selection 3: {:?} ('{}')", selection3,
+            text.chars().skip(selection3.from()).take(selection3.len()).collect::<String>());
+        
+        // According to Helix source: merge_ranges() creates one selection from first to last
+        let first = selection1;
+        let last = selection3;
+        let merged = first.merge(last);
+        
+        println!("Merged selection: {:?}", merged);
+        println!("Merged text: '{}'", 
+            text.chars().skip(merged.from()).take(merged.len()).collect::<String>());
+        
+        // Verify the merge spans from start of first to end of last
+        assert_eq!(merged.from(), first.from());
+        assert_eq!(merged.to(), last.to());
+    }
+
+    #[test]
+    fn test_merge_consecutive_selections_behavior() {
+        // Test merge consecutive selections behavior from Helix source
+        let text = Rope::from("abc\ndef\nghi\n\njkl");
+        
+        println!("=== MERGE CONSECUTIVE SELECTIONS BEHAVIOR TEST ===");
+        println!("Text: '{}'", text.chars().collect::<String>());
+        
+        // Test case: Consecutive selections should merge, non-consecutive should remain separate
+        println!("\nTest case: Consecutive vs non-consecutive selections");
+        
+        // Simulate selections: "abc", "def", "ghi" (consecutive), gap, then "jkl"
+        let sel1 = Range::new(0, 3);   // "abc"
+        let sel2 = Range::new(4, 7);   // "def" (consecutive with sel1)
+        let sel3 = Range::new(8, 11);  // "ghi" (consecutive with sel2)
+        let sel4 = Range::new(13, 16); // "jkl" (not consecutive, has gap)
+        
+        println!("Selection 1: {:?} ('{}')", sel1,
+            text.chars().skip(sel1.from()).take(sel1.len()).collect::<String>());
+        println!("Selection 2: {:?} ('{}')", sel2,
+            text.chars().skip(sel2.from()).take(sel2.len()).collect::<String>());
+        println!("Selection 3: {:?} ('{}')", sel3,
+            text.chars().skip(sel3.from()).take(sel3.len()).collect::<String>());
+        println!("Selection 4: {:?} ('{}')", sel4,
+            text.chars().skip(sel4.from()).take(sel4.len()).collect::<String>());
+        
+        // According to Helix: consecutive selections merge, others remain separate
+        // sel1, sel2, sel3 should merge into one selection
+        // sel4 should remain separate
+        
+        // Check if selections are consecutive (end of one == start of next)
+        let consecutive_1_2 = sel1.to() == sel2.from();
+        let consecutive_2_3 = sel2.to() == sel3.from();
+        let consecutive_3_4 = sel3.to() == sel4.from();
+        
+        println!("Consecutive 1->2: {}", consecutive_1_2);
+        println!("Consecutive 2->3: {}", consecutive_2_3);
+        println!("Consecutive 3->4: {}", consecutive_3_4);
+        
+        // Expected result: [merged(sel1,sel2,sel3), sel4]
+        let merged_123 = sel1.merge(sel3); // Merge from first to last of consecutive group
+        println!("Merged 1-2-3: {:?} ('{}')", merged_123,
+            text.chars().skip(merged_123.from()).take(merged_123.len()).collect::<String>());
+        println!("Separate 4: {:?} ('{}')", sel4,
+            text.chars().skip(sel4.from()).take(sel4.len()).collect::<String>());
     }
 }

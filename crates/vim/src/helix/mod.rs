@@ -134,8 +134,16 @@ fn helix_collapse_selection(
                     let helix_range = core::Range::new(anchor_offset, head_offset);
                     let cursor_char_index = helix_range.cursor(&rope_text);
                     
+                    // CRITICAL FIX: Apply +1 adjustment because Zed positions cursor at head-1
+                    // This is the same issue we had with find character movements
+                    let adjusted_cursor_char_index = if cursor_char_index < rope_text.chars().count() {
+                        cursor_char_index + 1
+                    } else {
+                        cursor_char_index
+                    };
+                    
                     // Convert back to Zed coordinates
-                    let cursor_byte_offset = core::char_index_to_byte_offset(&rope_text, cursor_char_index);
+                    let cursor_byte_offset = core::char_index_to_byte_offset(&rope_text, adjusted_cursor_char_index);
                     let cursor_point = snapshot.offset_to_point(cursor_byte_offset);
                     let cursor_display = editor::DisplayPoint::new(editor::display_map::DisplayRow(cursor_point.row), cursor_point.column);
                     
@@ -207,57 +215,36 @@ fn helix_merge_consecutive_selections(
             return;
         }
         
-        let mut merged_ranges = Vec::new();
-        let mut current_group = Vec::new();
+        // Convert Zed selections to Helix ranges for processing
+        let mut ranges: Vec<core::Range> = selections.iter().map(|selection| {
+            let start_offset = buffer.point_to_offset(selection.start);
+            let end_offset = buffer.point_to_offset(selection.end);
+            core::Range::new(start_offset, end_offset)
+        }).collect();
         
-        for selection in selections {
-            if current_group.is_empty() {
-                current_group.push(selection);
-            } else {
-                let last_selection = current_group.last().unwrap();
-                let last_end_row = last_selection.end.row;
-                let current_start_row = selection.start.row;
-                
-                // Check if this selection is on the next consecutive line
-                if current_start_row == last_end_row + 1 || current_start_row == last_end_row {
-                    current_group.push(selection);
-                } else {
-                    // Gap found, finalize current group
-                    if current_group.len() > 1 {
-                        // Merge the group into one selection
-                        let first = current_group.first().unwrap();
-                        let last = current_group.last().unwrap();
-                        let start_offset = buffer.point_to_offset(first.start);
-                        let end_offset = buffer.point_to_offset(last.end);
-                        merged_ranges.push(start_offset..end_offset);
-                    } else {
-                        // Single selection, keep as is
-                        let selection = current_group.first().unwrap();
-                        let start_offset = buffer.point_to_offset(selection.start);
-                        let end_offset = buffer.point_to_offset(selection.end);
-                        merged_ranges.push(start_offset..end_offset);
-                    }
-                    current_group.clear();
-                    current_group.push(selection);
+        // Sort ranges by position (Helix assumes sorted ranges)
+        ranges.sort_by_key(|r| r.from());
+        
+        // Apply Helix's merge_consecutive_ranges logic using dedup_by
+        let mut primary = ranges[0]; // Track primary for later
+        
+        ranges.dedup_by(|curr_range, prev_range| {
+            if prev_range.to() == curr_range.from() {
+                let new_range = curr_range.merge(*prev_range);
+                if prev_range == &primary || curr_range == &primary {
+                    primary = new_range;
                 }
-            }
-        }
-        
-        // Handle the last group
-        if !current_group.is_empty() {
-            if current_group.len() > 1 {
-                let first = current_group.first().unwrap();
-                let last = current_group.last().unwrap();
-                let start_offset = buffer.point_to_offset(first.start);
-                let end_offset = buffer.point_to_offset(last.end);
-                merged_ranges.push(start_offset..end_offset);
+                *prev_range = new_range;
+                true // Remove curr_range (it's been merged into prev_range)
             } else {
-                let selection = current_group.first().unwrap();
-                let start_offset = buffer.point_to_offset(selection.start);
-                let end_offset = buffer.point_to_offset(selection.end);
-                merged_ranges.push(start_offset..end_offset);
+                false // Keep both ranges
             }
-        }
+        });
+        
+        // Convert back to Zed ranges
+        let merged_ranges: Vec<_> = ranges.iter().map(|range| {
+            range.from()..range.to()
+        }).collect();
         
         if !merged_ranges.is_empty() {
             editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {

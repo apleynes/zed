@@ -394,12 +394,37 @@ impl Vim {
                             }
                         };
                         
-                        // Convert back to Zed coordinates and update only the head
-                        let new_head_byte_offset = super::core::char_index_to_byte_offset(&rope_text, new_range.head);
-                        let new_head_point = snapshot.offset_to_point(new_head_byte_offset);
-                        let new_head_display = DisplayPoint::new(DisplayRow(new_head_point.row), new_head_point.column);
+                        // Convert back to Zed coordinates
+                        // CRITICAL FIX: Only adjust head position for FORWARD movements
+                        // Forward movements (f, t) need +1 adjustment
+                        // Backward movements (F, T) should use head position directly
+                        let adjusted_head = match motion {
+                            Motion::FindForward { .. } => {
+                                // Forward movements need +1 adjustment
+                                if new_range.head < rope_text.chars().count() {
+                                    new_range.head + 1
+                                } else {
+                                    new_range.head
+                                }
+                            }
+                            Motion::FindBackward { .. } => {
+                                // Backward movements use head position directly
+                                new_range.head
+                            }
+                            _ => new_range.head,
+                        };
                         
-                        selection.set_head(new_head_display, selection.goal);
+                        let anchor_byte_offset = super::core::char_index_to_byte_offset(&rope_text, new_range.anchor);
+                        let head_byte_offset = super::core::char_index_to_byte_offset(&rope_text, adjusted_head);
+                        
+                        let anchor_point = snapshot.offset_to_point(anchor_byte_offset);
+                        let head_point = snapshot.offset_to_point(head_byte_offset);
+                        
+                        let anchor_display = DisplayPoint::new(DisplayRow(anchor_point.row), anchor_point.column);
+                        let head_display = DisplayPoint::new(DisplayRow(head_point.row), head_point.column);
+                        
+                        selection.set_tail(anchor_display, selection.goal);
+                        selection.set_head(head_display, selection.goal);
                     });
                 });
             });
@@ -440,8 +465,27 @@ impl Vim {
                         };
                         
                         // Convert back to Zed coordinates
+                        // CRITICAL FIX: Only adjust head position for FORWARD movements
+                        // Forward movements (f, t) need +1 adjustment
+                        // Backward movements (F, T) should use head position directly
+                        let adjusted_head = match motion {
+                            Motion::FindForward { .. } => {
+                                // Forward movements need +1 adjustment
+                                if new_range.head < rope_text.chars().count() {
+                                    new_range.head + 1
+                                } else {
+                                    new_range.head
+                                }
+                            }
+                            Motion::FindBackward { .. } => {
+                                // Backward movements use head position directly
+                                new_range.head
+                            }
+                            _ => new_range.head,
+                        };
+                        
                         let anchor_byte_offset = super::core::char_index_to_byte_offset(&rope_text, new_range.anchor);
-                        let head_byte_offset = super::core::char_index_to_byte_offset(&rope_text, new_range.head);
+                        let head_byte_offset = super::core::char_index_to_byte_offset(&rope_text, adjusted_head);
                         
                         let anchor_point = snapshot.offset_to_point(anchor_byte_offset);
                         let head_point = snapshot.offset_to_point(head_byte_offset);

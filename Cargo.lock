@@ -17273,6 +17273,8 @@ dependencies = [
  "theme",
  "tokio",
  "ui",
+ "unicode-segmentation",
+ "unicode-width 0.1.14",
  "util",
  "vim_mode_setting",
  "workspace",

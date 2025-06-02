@@ -538,3 +538,131 @@ The Helix movement and selection system is **successfully implemented and valida
 - ✅ **Architecture ready**: Clean foundation for Phase 3 text objects
 
 **Major Achievement**: We now have a Helix implementation in Zed that behaves identically to the real Helix editor for all core selection and movement operations, validated through direct test case adaptation from Helix's own test suite.
+
+## ✅ PHASE 3: CHARACTER ITERATION IMPLEMENTATION (IN PROGRESS)
+
+### Current Status: Implementing Exact Helix Logic
+- ✅ **Compilation Success**: All code compiles without character boundary errors
+- ✅ **Approach Validated**: Using Rope's `chars_at()` iterator matches Helix's `Chars` iterator
+- 🔄 **Progress**: 1/5 basic word movement tests passing, working on anchor logic
+- 🎯 **Goal**: Mirror exact Helix `CharHelpers::range_to_target` implementation
+
+### Key Discovery: Helix State Machine Architecture
+Found that Helix uses a sophisticated state machine in `CharHelpers::range_to_target`:
+
+1. **Range Preparation**: Handles block cursor semantics via `next_grapheme_boundary`
+2. **Iterator Direction**: Reverses iterator for backward motions  
+3. **State Tracking**: Uses `prev_ch`, `head_start`, and `anchor` variables
+4. **Boundary Detection**: `reached_target()` function with character pair analysis
+5. **Anchor Logic**: `if head == head_start { anchor = head }` for boundary conditions
+
+### Helix Code Structure Being Implemented
+```rust
+fn range_to_target(&mut self, target: WordMotionTarget, origin: Range) -> Range {
+    // 1. Direction detection
+    let is_prev = matches!(target, PrevWordStart | PrevWordEnd | ...);
+    
+    // 2. Iterator setup with direction
+    if is_prev { self.reverse(); }
+    
+    // 3. State variables
+    let mut anchor = origin.anchor;
+    let mut head = origin.head;
+    let mut prev_ch = self.prev(); // Get context
+    
+    // 4. Skip initial newlines with anchor adjustment
+    while let Some(ch) = self.next() {
+        if char_is_line_ending(ch) {
+            prev_ch = Some(ch);
+            advance(&mut head);
+        } else { break; }
+    }
+    if prev_ch.map(char_is_line_ending).unwrap_or(false) {
+        anchor = head;
+    }
+    
+    // 5. Main boundary detection loop
+    let head_start = head;
+    while let Some(next_ch) = self.next() {
+        if prev_ch.is_none() || reached_target(target, prev_ch.unwrap(), next_ch) {
+            if head == head_start {
+                anchor = head;  // KEY: First boundary sets anchor
+            } else {
+                break;  // Subsequent boundaries stop iteration
+            }
+        }
+        prev_ch = Some(next_ch);
+        advance(&mut head);
+    }
+    
+    Range::new(anchor, head)
+}
+```
+
+### Current Implementation Status
+- ✅ **Basic word skipping**: Correctly handles word character iteration
+- ✅ **Whitespace skipping**: Properly advances through spaces  
+- ✅ **Anchor logic**: Implemented Helix's `head == head_start` pattern
+- ✅ **Boundary detection**: Implemented `reached_target()` function with exact Helix logic
+- ✅ **Forward motion**: NextWordStart working correctly for ASCII text
+- 🔄 **Character boundaries**: Multibyte character panic in `prev_grapheme_boundary`
+- 🔄 **Direction handling**: Need iterator reversal for backward motions
+
+### Test Case Analysis
+```
+"Basic forward motion stops at the first space"
+Expected: Range::new(0, 6)  // "Basic " 
+Current:  Range::new(0, 6)  // ✅ PASSING
+
+" Starting from a boundary advances the anchor" 
+Expected: Range::new(1, 10) // anchor=1 (boundary adjustment)
+Current:  Range::new(1, 10) // ✅ PASSING
+
+".._.._ punctuation is not joined by underscores into a single block"
+Expected: Range::new(0, 2)  
+Current:  Range::new(1, 3)  // ❌ anchor/head positioning incorrect
+
+Multibyte: "ヒーリクス editor"
+Expected: No panic, proper character handling
+Current:  PANIC - byte index 2 not on char boundary // ❌ CRITICAL
+```
+
+### Critical Issue Discovered: Character Boundary Bug
+The `prev_grapheme_boundary` function has a fundamental flaw in multibyte character handling:
+
+```rust
+// BUGGY CODE:
+if let Some(ch) = text.reversed_chars_at(pos).next() {
+    pos.saturating_sub(ch.len_utf8())  // ❌ Wrong calculation
+}
+```
+
+**Root Cause**: When `pos` is inside a multibyte character (e.g., pos=2 inside 'ヒ' at bytes 0-2), 
+`reversed_chars_at(pos)` doesn't behave as expected. The calculation assumes `pos` is at the 
+END of the character, but it might be in the MIDDLE.
+
+**Impact**: This creates invalid byte positions that cause Rope to panic when creating iterators.
+
+### Next Implementation Steps - UPDATED PRIORITY
+1. **🔥 CRITICAL: Fix `prev_grapheme_boundary`** - multibyte character safety
+   - Study how Zed handles character boundary detection
+   - Implement proper multibyte character boundary finding
+   - Test with actual multibyte strings to ensure no panics
+2. **Fix punctuation boundary detection** - handle edge cases in `reached_target`
+3. **Add iterator direction handling** for backward motions (PrevWordStart, etc.)
+4. **Test comprehensive coverage** against all Helix word movement test cases
+5. **Performance optimization** once correctness is established
+
+### Immediate Action Required
+The multibyte character bug blocks all progress. Must fix `prev_grapheme_boundary` 
+before implementing additional word motion targets or the system will be unstable.
+
+**Strategy**: Look at how Zed's existing vim word motions handle character boundaries,
+or implement a character-safe boundary detection using Rope's character iteration.
+
+### Architecture Decision: Full Helix Mirroring
+Continuing with direct Helix code translation rather than simplification because:
+- **Verifiable**: Each piece maps directly to Helix source code
+- **Testable**: Can validate against Helix's own test suite  
+- **Maintainable**: Future Helix updates can be mirrored systematically
+- **Complete**: Handles all edge cases that Helix handles

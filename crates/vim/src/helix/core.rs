@@ -1429,4 +1429,54 @@ mod tests {
         
         println!("✅ All find character movements should now work correctly!");
     }
+
+    #[test]
+    fn test_collapse_selection_cursor_positioning() {
+        // Test the specific issue: after forward movement, collapse should position cursor correctly
+        let text = Rope::from("hello world");
+        
+        println!("=== COLLAPSE SELECTION CURSOR POSITIONING TEST ===");
+        println!("Text: '{}'", text.chars().collect::<String>());
+        
+        // Test case 1: Forward selection from position 0 to 5 ("hello")
+        let forward_range = Range::new(0, 5);
+        println!("\nTest case 1: Forward selection {:?}", forward_range);
+        println!("Selection: '{}' to '{}'", 
+            text.chars().nth(forward_range.anchor).unwrap_or('?'),
+            text.chars().nth(forward_range.head).unwrap_or('?'));
+        
+        let cursor_pos = forward_range.cursor(&text);
+        println!("Cursor position: {} ('{}')", cursor_pos, text.chars().nth(cursor_pos).unwrap_or('?'));
+        
+        // Expected: cursor should be at position 4 ('o'), not 5 (' ')
+        assert_eq!(cursor_pos, 4);
+        assert_eq!(text.chars().nth(cursor_pos), Some('o'));
+        
+        // Test case 2: Backward selection from position 5 to 0
+        let backward_range = Range::new(5, 0);
+        println!("\nTest case 2: Backward selection {:?}", backward_range);
+        println!("Selection: '{}' to '{}'", 
+            text.chars().nth(backward_range.anchor).unwrap_or('?'),
+            text.chars().nth(backward_range.head).unwrap_or('?'));
+        
+        let cursor_pos_back = backward_range.cursor(&text);
+        println!("Cursor position: {} ('{}')", cursor_pos_back, text.chars().nth(cursor_pos_back).unwrap_or('?'));
+        
+        // Expected: cursor should be at position 0 ('h')
+        assert_eq!(cursor_pos_back, 0);
+        assert_eq!(text.chars().nth(cursor_pos_back), Some('h'));
+        
+        // Test case 3: Point range (empty selection)
+        let point_range = Range::new(3, 3);
+        println!("\nTest case 3: Point range {:?}", point_range);
+        
+        let cursor_pos_point = point_range.cursor(&text);
+        println!("Cursor position: {} ('{}')", cursor_pos_point, text.chars().nth(cursor_pos_point).unwrap_or('?'));
+        
+        // Expected: cursor should be at position 3 ('l')
+        assert_eq!(cursor_pos_point, 3);
+        assert_eq!(text.chars().nth(cursor_pos_point), Some('l'));
+        
+        println!("\n✅ All cursor positioning tests passed!");
+    }
 }

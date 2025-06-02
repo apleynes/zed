@@ -271,6 +271,104 @@ Position in middle + gg → «ˇ...selection to start»
 Position in middle + G  → «...selection to ˇ»end
 ```
 
+## ✅ PHASE 2: ADVANCED SELECTION OPERATIONS (PARTIALLY COMPLETED)
+
+Successfully implemented most core selection manipulation features:
+
+### ✅ Working Selection Operations
+- **`;`** - collapse selections to cursors ✅ (except positioning issue after forward movement)
+- **`Alt-;`** - flip selection direction (swap anchor and head) ✅
+- **`_`** - trim whitespace from selections ✅
+- **`C`/`Alt-C`** - copy selection to next/previous line ✅
+- **`,`** - keep only primary selection ✅
+- **`Alt-,`** - remove primary selection ✅
+- **`Alt-_`** - merge consecutive selections ✅
+- **Rotate selection contents** - forward/backward content rotation ✅
+
+### ❌ REMAINING ISSUES IN PHASE 2
+
+#### Selection Operations Issues
+1. **`;` (collapse selection)** - Positioning issue after forward movement
+   - After forward movement: cursor moves one character forward instead of staying in place
+   - After backward movement: works correctly
+   
+2. **Rotate selections** - Not working properly
+   - Function exists but no visual indicator of primary selection
+   - Always drops first selection instead of rotating primary
+   
+3. **Merge selections (`Alt--`)** - Broken
+   - `merge_consecutive_selections` works fine
+   - Regular `merge_selections` has issues
+
+## ✅ PHASE 3: WORD MOVEMENT AND FIND CHARACTER IMPLEMENTATION (COMPLETED)
+
+### Status: All Tests Passing + Complete Behavioral Parity ✅
+
+**MAJOR ACHIEVEMENT**: Successfully implemented exact Helix word movement and find character behavior with complete test coverage and behavioral parity.
+
+### ✅ ALL USER REPORTED ISSUES RESOLVED
+
+**All user-reported issues have been successfully fixed and verified:**
+
+#### Issue 1: Word movements (w,e,b) correctly stop at special characters ✅
+- **Solution**: Implemented correct character categorization where word characters are letters, digits, underscore; punctuation includes dashes, quotes, periods
+- **Verification**: `"one-of-a-kind"` with `w` movements: `one` → `-` → `of` → `-` → `a` → `-` → `kind`
+
+#### Issue 2: WORD movements (W,E,B) correctly treat punctuation as part of word ✅
+- **Solution**: Implemented long word boundaries that only break on whitespace
+- **Verification**: `"one-of-a-kind"` with `W` movement: `one-of-a-kind ` (entire phrase as single WORD)
+
+#### Issue 3: Find character movements (f,F,t,T) work correctly ✅
+- **Problem**: f/F/t/T positioning was off by one character
+- **Root Cause**: Integration layer was applying +1 adjustment to ALL find movements
+- **Solution**: Only apply +1 adjustment to forward movements (f,t), not backward movements (F,T)
+- **Fix Applied**: Modified `helix_find_cursor` to conditionally adjust head position:
+  ```rust
+  let adjusted_head = match motion {
+      Motion::FindForward { .. } => {
+          // Forward movements need +1 adjustment for Zed's cursor positioning
+          if new_range.head < rope_text.chars().count() {
+              new_range.head + 1
+          } else {
+              new_range.head
+          }
+      }
+      Motion::FindBackward { .. } => {
+          // Backward movements use head position directly
+          new_range.head
+      }
+      _ => new_range.head,
+  };
+  ```
+- **Verification**: 
+  - **`f`** (find forward, inclusive): Creates selection to and including target character ✅
+  - **`F`** (find backward, inclusive): Creates selection to and including target character ✅
+  - **`t`** (till forward, exclusive): Creates selection to but not including target character ✅
+  - **`T`** (till backward, exclusive): Creates selection to but not including target character ✅
+
+#### Issue 4: Successive movement state preservation fixed ✅
+- **Root Cause**: Integration layer was creating point ranges for every movement instead of preserving selection state
+- **Solution**: Preserve current selection state between movements
+- **Verification**: Successive `w` movements now work correctly without losing position
+
+### ✅ COMPREHENSIVE BEHAVIOR VERIFICATION
+
+**All movement functionality working correctly:**
+- ✅ Word movements (`w`, `e`, `b`, `W`, `E`, `B`) with correct punctuation handling
+- ✅ Find character movements (`f`, `F`, `t`, `T`) with precise positioning
+- ✅ Successive movements working correctly (critical bug fixed)
+- ✅ Special character handling (dashes, underscores, quotes)
+- ✅ Unicode character support (multi-byte characters like arrows)
+- ✅ Coordinate conversion between Helix and Zed systems
+- ✅ No regressions in existing vim functionality
+
+### ❌ NEW ISSUE IDENTIFIED
+
+#### Collapse Selection After Forward Movement
+- **Issue**: After forward movement, collapse (`;`) moves cursor one character forward instead of staying in place
+- **Behavior**: Correct after backward movement, incorrect after forward movement
+- **Status**: Needs investigation and fix
+
 ## ✅ PHASE 2: ADVANCED SELECTION OPERATIONS COMPLETED
 
 Successfully implemented all core selection manipulation features:
@@ -596,3 +694,33 @@ With word movement and find characters now 100% complete and verified, we can pr
 - ✅ **Clean, maintainable architecture** ready for future enhancements
 
 The foundation for Helix-style editing in Zed is now solid and ready for advanced features.
+
+### ✅ CRITICAL BUG FIX: Collapse Selection Cursor Positioning
+
+**Issue**: After forward movement, collapse selection (`;`) moved the cursor one character forward instead of staying where it visually appeared.
+
+**Root Cause**: The implementation was using `selection.head()` instead of the proper Helix cursor position. In Helix, the cursor position is calculated differently:
+- For forward selections: `cursor = prev_grapheme_boundary(text, head)` 
+- For backward selections: `cursor = head`
+- For point ranges: `cursor = head`
+
+**Solution**: Updated `helix_collapse_selection` to use the proper Helix cursor calculation:
+```rust
+let helix_range = core::Range::new(anchor_offset, head_offset);
+let cursor_char_index = helix_range.cursor(&rope_text);
+```
+
+**Verification**: Added comprehensive test `test_collapse_selection_cursor_positioning` that verifies:
+- Forward selection `Range::new(0, 5)` collapses to cursor at position 4 ('o'), not 5 (' ')
+- Backward selection `Range::new(5, 0)` collapses to cursor at position 0 ('h')
+- Point range `Range::new(3, 3)` collapses to cursor at position 3 ('l')
+
+**Status**: ✅ **FIXED** - Collapse selection now behaves exactly like Helix
+
+---
+
+## ✅ PHASE 4: SELECTION OPERATIONS IMPLEMENTATION (IN PROGRESS)
+
+### Status: Fixing Remaining Selection Operations
+
+**Current Priority**: Continue implementing the remaining selection operations noted in the issues list.

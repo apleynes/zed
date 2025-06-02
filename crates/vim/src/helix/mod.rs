@@ -111,10 +111,38 @@ fn helix_collapse_selection(
     cx: &mut Context<Vim>,
 ) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
+        // Extract buffer data to calculate cursor positions
+        let buffer = editor.buffer().read(cx);
+        let snapshot = buffer.snapshot(cx);
+        let rope_text = rope::Rope::from(snapshot.text());
+        
         editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_with(|_, selection| {
-                let cursor = selection.head();
-                selection.collapse_to(cursor, selection.goal);
+            s.move_with(|map, selection| {
+                // Calculate the proper cursor position using Helix semantics
+                let cursor_pos = if selection.is_empty() {
+                    // Empty selection: cursor is at head
+                    selection.head()
+                } else {
+                    // Non-empty selection: calculate cursor position like Helix
+                    let anchor_byte_offset = selection.tail().to_offset(map, editor::Bias::Left);
+                    let head_byte_offset = selection.head().to_offset(map, editor::Bias::Left);
+                    
+                    let anchor_offset = core::byte_offset_to_char_index(&rope_text, anchor_byte_offset);
+                    let head_offset = core::byte_offset_to_char_index(&rope_text, head_byte_offset);
+                    
+                    // Create Helix range and get cursor position
+                    let helix_range = core::Range::new(anchor_offset, head_offset);
+                    let cursor_char_index = helix_range.cursor(&rope_text);
+                    
+                    // Convert back to Zed coordinates
+                    let cursor_byte_offset = core::char_index_to_byte_offset(&rope_text, cursor_char_index);
+                    let cursor_point = snapshot.offset_to_point(cursor_byte_offset);
+                    let cursor_display = editor::DisplayPoint::new(editor::display_map::DisplayRow(cursor_point.row), cursor_point.column);
+                    
+                    cursor_display
+                };
+                
+                selection.collapse_to(cursor_pos, selection.goal);
             });
         });
     });

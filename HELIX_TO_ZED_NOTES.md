@@ -666,3 +666,84 @@ Continuing with direct Helix code translation rather than simplification because
 - **Testable**: Can validate against Helix's own test suite  
 - **Maintainable**: Future Helix updates can be mirrored systematically
 - **Complete**: Handles all edge cases that Helix handles
+
+## ✅ PHASE 3: WORD MOVEMENT IMPLEMENTATION STATUS (CRITICAL ISSUE)
+
+### Current Status: 15/16 Tests Passing - FUNDAMENTAL BOUNDARY BEHAVIOR FAILING
+
+**Achievement**: Successfully implemented Helix word movement with 93.75% test pass rate
+**Critical Issue**: One fundamental boundary behavior test failing - NOT an edge case
+
+### Test Results Summary
+```
+✅ PASSING (15 tests):
+- test_helix_word_movement_normal_mode
+- test_helix_word_vs_word_punctuation  
+- test_helix_word_vs_long_word_punctuation
+- test_helix_word_with_underscores
+- test_helix_word_whitespace_behavior
+- test_helix_word_from_whitespace
+- test_helix_word_long_whitespace
+- test_helix_word_from_mid_word
+- test_helix_word_end_basic
+- test_helix_word_end_punctuation
+- test_helix_word_back_basic
+- test_helix_word_back_whitespace
+- test_helix_word_newlines
+- test_helix_word_punctuation_joins
+- test_helix_word_select_mode_extends
+
+❌ FAILING (1 test):
+- test_helix_word_boundary_behavior
+```
+
+### Critical Failing Test Analysis
+
+**Test**: `test_helix_word_boundary_behavior`
+**Input**: `ˇ Starting from` (cursor at position 0, which is a space)
+**Keystroke**: `w` (next word start)
+**Expected**: `« ˇ»Starting from` (select only the space character)
+**Actual**: `« Startingˇ» from` (select the word "Starting")
+
+**Expected Range**: `Range { anchor: 0, head: 1 }` (space only)
+**Actual Range**: `Range { anchor: 1, head: 9 }` (word only)
+
+This represents a fundamental difference in how Helix handles word movements from whitespace boundaries.
+
+### Root Cause Investigation
+
+**Debugging Reveals**:
+1. Our `range_to_target` function works correctly in isolation
+2. Range preparation logic gives correct `Range { anchor: 0, head: 1 }`
+3. Issue occurs in integration between preparation and movement loop
+4. Our debug test environment shows correct behavior, but actual test fails
+
+**Core Issue**: Disconnect between our core movement logic and the test execution environment suggests the problem is in how the movement is being called or integrated into Zed's editor system.
+
+### Technical Deep Dive
+
+**From debugging `move_next_word_start`**:
+```
+Input: Range { anchor: 0, head: 0 }
+Range preparation: Range { anchor: 0, head: 1 } ✅ CORRECT
+Loop iteration 0: Range { anchor: 0, head: 1 } -> Range { anchor: 1, head: 10 } ❌ WRONG
+```
+
+**Problem**: The movement loop is executing when it shouldn't, or our early termination logic isn't being triggered in the actual test environment.
+
+### Immediate Next Steps
+
+1. **Verify Integration Path**: Trace how `helix_normal_motion` calls `move_next_word_start`
+2. **Debug Test Environment**: Add comprehensive logging to see why early termination fails
+3. **Compare with Helix Source**: Verify our understanding of boundary behavior
+4. **Fix Core Logic**: Ensure whitespace boundary handling matches Helix exactly
+
+**This is NOT an edge case** - it's fundamental to how Helix treats whitespace in word movements and must be resolved for correct behavior.
+
+### Implementation Status: BLOCKED
+
+**Priority**: CRITICAL - This affects basic word movement from whitespace
+**Impact**: Breaks core Helix user expectations for word selection
+**Next Action**: Continue debugging until boundary behavior is fixed
+
+The 15 passing tests demonstrate the architecture is sound, but this remaining issue affects fundamental usability.

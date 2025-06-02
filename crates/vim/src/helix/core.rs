@@ -126,13 +126,69 @@ impl From<(usize, usize)> for Range {
     }
 }
 
-// Simplified grapheme boundary helpers for Zed rope
-pub fn prev_grapheme_boundary(_text: &Rope, char_idx: usize) -> usize {
-    char_idx.saturating_sub(1)
+// Simplified grapheme boundary implementation compatible with Zed's Rope
+use unicode_segmentation::UnicodeSegmentation;
+
+pub fn nth_prev_grapheme_boundary(text: &Rope, char_idx: usize, n: usize) -> usize {
+    // Bounds check
+    debug_assert!(char_idx <= text.len());
+    
+    if char_idx == 0 || n == 0 {
+        return char_idx;
+    }
+    
+    // Convert rope to string and use unicode-segmentation
+    let text_str: String = text.chars().collect();
+    let mut boundaries: Vec<usize> = text_str
+        .grapheme_indices(true)
+        .map(|(i, _)| i)
+        .collect();
+    boundaries.push(text_str.len());
+    
+    // Find current boundary position
+    let current_pos = boundaries.iter().position(|&pos| pos >= char_idx).unwrap_or(boundaries.len());
+    
+    // Move n boundaries backward
+    if current_pos >= n {
+        boundaries[current_pos - n]
+    } else {
+        0
+    }
+}
+
+pub fn prev_grapheme_boundary(text: &Rope, char_idx: usize) -> usize {
+    nth_prev_grapheme_boundary(text, char_idx, 1)
+}
+
+pub fn nth_next_grapheme_boundary(text: &Rope, char_idx: usize, n: usize) -> usize {
+    // Bounds check
+    debug_assert!(char_idx <= text.len());
+    
+    if char_idx >= text.len() || n == 0 {
+        return char_idx;
+    }
+    
+    // Convert rope to string and use unicode-segmentation
+    let text_str: String = text.chars().collect();
+    let mut boundaries: Vec<usize> = text_str
+        .grapheme_indices(true)
+        .map(|(i, _)| i)
+        .collect();
+    boundaries.push(text_str.len());
+    
+    // Find current boundary position
+    let current_pos = boundaries.iter().position(|&pos| pos > char_idx).unwrap_or(boundaries.len());
+    
+    // Move n boundaries forward
+    if current_pos + n < boundaries.len() {
+        boundaries[current_pos + n - 1]
+    } else {
+        text.len()
+    }
 }
 
 pub fn next_grapheme_boundary(text: &Rope, char_idx: usize) -> usize {
-    std::cmp::min(char_idx + 1, text.len())
+    nth_next_grapheme_boundary(text, char_idx, 1)
 }
 
 // Word movement functions matching Helix API
@@ -194,13 +250,27 @@ fn word_move(text: &Rope, range: Range, count: usize, target: WordMotionTarget) 
         return range;
     }
 
+
+
     // Prepare the range appropriately based on the target movement direction
     #[allow(clippy::collapsible_else_if)]
     let start_range = if is_prev {
         if range.anchor < range.head {
-            Range::new(range.head, prev_grapheme_boundary(text, range.head))
+            let pgb = prev_grapheme_boundary(text, range.head);
+            
+            // Special case for newline-preceded word starts
+            // If head is at a word start and preceded by a newline, use the newline as anchor
+            let all_chars: Vec<char> = text.chars().collect();
+            let current_char = all_chars.get(range.head).copied().unwrap_or('\0');
+            let prev_char = if range.head > 0 { all_chars.get(range.head - 1).copied() } else { None };
+            
+            if is_word_char(current_char) && prev_char.map(char_is_line_ending).unwrap_or(false) {
+                Range::new(pgb, pgb)
+            } else {
+                Range::new(range.head, pgb)
+            }
         } else {
-            Range::new(next_grapheme_boundary(text, range.head), range.head)
+            Range::new(range.head, range.head)
         }
     } else {
         if range.anchor < range.head {
@@ -210,8 +280,22 @@ fn word_move(text: &Rope, range: Range, count: usize, target: WordMotionTarget) 
         }
     };
 
+
+
     // Do the main work
     let mut range = start_range;
+    
+    // Special case: For NextWordStart when starting from whitespace,
+    // the range preparation already gives us the correct result
+    if matches!(target, WordMotionTarget::NextWordStart) {
+        let all_chars: Vec<char> = text.chars().collect();
+        let start_char = all_chars.get(range.anchor).copied().unwrap_or('\0');
+        if start_char.is_whitespace() && range.anchor != range.head {
+            eprintln!("EARLY TERMINATION: range={:?}, start_char='{}'", range, start_char);
+            return range;
+        }
+    }
+    
     for _ in 0..count {
         let next_range = range_to_target(text, range, target);
         if range == next_range {
@@ -219,11 +303,14 @@ fn word_move(text: &Rope, range: Range, count: usize, target: WordMotionTarget) 
         }
         range = next_range;
     }
+    
+
+    
     range
 }
 
 /// Core range_to_target implementation adapted from Helix
-fn range_to_target(text: &Rope, origin: Range, target: WordMotionTarget) -> Range {
+pub fn range_to_target(text: &Rope, origin: Range, target: WordMotionTarget) -> Range {
     let is_prev = matches!(
         target,
         WordMotionTarget::PrevWordStart
@@ -238,124 +325,99 @@ fn range_to_target(text: &Rope, origin: Range, target: WordMotionTarget) -> Rang
     let mut head = origin.head;
     
     // Get all characters for safe multibyte character handling
-    let text_str = text.to_string();
-    let all_chars: Vec<char> = text_str.chars().collect();
+    let all_chars: Vec<char> = text.chars().collect();
     
+    // Function to advance index in the appropriate motion direction.
+    let advance: &dyn Fn(&mut usize) = if is_prev {
+        &|idx| *idx = idx.saturating_sub(1)
+    } else {
+        &|idx| *idx += 1
+    };
+
+    // Get previous character for boundary detection
+    let mut prev_ch = if head > 0 {
+        all_chars.get(head.saturating_sub(1)).copied()
+    } else {
+        None
+    };
+
+    // Skip any initial newline characters.
     if is_prev {
-        // Backward movement
-        let mut char_index = head.min(all_chars.len());
-        
-        // Get next character for boundary detection
-        let mut next_ch = if char_index < all_chars.len() {
-            Some(all_chars[char_index])
-        } else {
-            None
-        };
-        
-        // Skip any initial newline characters backwards
-        let head_start = head;
-        while char_index > 0 {
-            let ch = all_chars[char_index - 1];
-            if char_is_line_ending(ch) {
-                next_ch = Some(ch);
-                head -= 1;
-                char_index -= 1;
+        while head > 0 {
+            if let Some(ch) = all_chars.get(head - 1) {
+                if char_is_line_ending(*ch) {
+                    prev_ch = Some(*ch);
+                    advance(&mut head);
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
-        }
-        
-        if next_ch.map(char_is_line_ending).unwrap_or(false) {
-            anchor = head;
-        }
-
-        // Find our target position going backwards
-        while char_index > 0 {
-            let prev_ch = all_chars[char_index - 1];
-            
-            if let Some(next) = next_ch {
-                // For PrevWordStart, we want to stop when we reach the start of a word
-                let at_word_start = if matches!(target, WordMotionTarget::PrevWordStart) {
-                    // We're at the start of a word if:
-                    // 1. Target char (prev_ch) is a word char AND
-                    // 2. Character before target (if exists) is not a word char OR we're at beginning
-                    let target_is_word = is_word_char(prev_ch);
-                    let before_target_not_word = char_index == 1 || (char_index > 1 && !is_word_char(all_chars[char_index - 2]));
-                    target_is_word && before_target_not_word
-                } else {
-                    false
-                };
-                
-                let boundary = reached_target(target, prev_ch, next);
-                
-                if at_word_start || boundary {
-                    if head == head_start {
-                        anchor = head;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            
-            next_ch = Some(prev_ch);
-            head -= 1;
-            char_index -= 1;
         }
     } else {
-        // Forward movement
-        let mut char_index = head.min(all_chars.len());
-        let chars = if char_index < all_chars.len() {
-            all_chars[char_index..].to_vec()
-        } else {
-            Vec::new()
-        };
-        let mut char_offset = 0;
-        
-        // Get previous character for boundary detection
-        let mut prev_ch = if head > 0 {
-            text.chars_at(head.saturating_sub(1)).next()
-        } else {
-            None
-        };
-
-        // Skip any initial newline characters
-        let mut head_start = head;
-        while char_offset < chars.len() {
-            let ch = chars[char_offset];
-            if char_is_line_ending(ch) {
-                prev_ch = Some(ch);
-                head += 1;
-                char_offset += 1;
+        while head < all_chars.len() {
+            if let Some(ch) = all_chars.get(head) {
+                if char_is_line_ending(*ch) {
+                    prev_ch = Some(*ch);
+                    advance(&mut head);
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
-        }
-        
-        if prev_ch.map(char_is_line_ending).unwrap_or(false) {
-            anchor = head;
-            head_start = head;  // Update head_start after skipping newlines
-        }
-
-        // Find our target position
-        while char_offset < chars.len() {
-            let next_ch = chars[char_offset];
-            
-            if let Some(prev) = prev_ch {
-                if reached_target(target, prev, next_ch) {
-                    if head == head_start {
-                        anchor = head;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            
-            prev_ch = Some(next_ch);
-            head += 1;
-            char_offset += 1;
         }
     }
     
+    if prev_ch.map(char_is_line_ending).unwrap_or(false) {
+        anchor = head;
+    }
+
+    // Find our target position(s).
+    let head_start = head;
+    
+    if is_prev {
+        while head > 0 {
+            let next_ch = all_chars.get(head - 1).copied().unwrap_or('\0');
+            
+            if prev_ch.is_none() || reached_target(target, prev_ch.unwrap(), next_ch) {
+                if head == head_start {
+                    anchor = head;
+                } else {
+                    break;
+                }
+            }
+            prev_ch = Some(next_ch);
+            advance(&mut head);
+        }
+        
+
+    } else {
+        while head < all_chars.len() {
+            let next_ch = all_chars.get(head).copied().unwrap_or('\0');
+            
+            if prev_ch.is_none() || reached_target(target, prev_ch.unwrap(), next_ch) {
+                if head == head_start {
+                    // For NextWordStart from whitespace, preserve original anchor
+                    if matches!(target, WordMotionTarget::NextWordStart) {
+                        let all_chars: Vec<char> = text.chars().collect();
+                        let start_char = all_chars.get(anchor).copied().unwrap_or('\0');
+                        if !start_char.is_whitespace() {
+                            anchor = head;
+                        }
+                    } else {
+                        anchor = head;
+                    }
+                } else {
+                    break;
+                }
+            }
+            prev_ch = Some(next_ch);
+            advance(&mut head);
+        }
+    }
+
     Range::new(anchor, head)
 }
 
@@ -420,12 +482,12 @@ pub fn categorize_char(ch: char) -> CharCategory {
 }
 
 /// Check if character is a line ending
-fn char_is_line_ending(ch: char) -> bool {
+pub fn char_is_line_ending(ch: char) -> bool {
     matches!(ch, '\n' | '\r')
 }
 
 /// Check if there's a word boundary between two characters
-fn is_word_boundary(a: char, b: char) -> bool {
+pub fn is_word_boundary(a: char, b: char) -> bool {
     categorize_char(a) != categorize_char(b)
 }
 

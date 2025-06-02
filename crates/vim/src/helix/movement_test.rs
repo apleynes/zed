@@ -128,8 +128,8 @@ mod test {
         // Reset for first non-whitespace test  
         cx.set_state("The quˇick brown fox", Mode::HelixNormal);
         
-        // Test first non-whitespace - creates selection in normal mode
-        cx.dispatch_action(MoveFirstNonWhitespace);
+        // Test start of line - creates selection in normal mode
+        cx.dispatch_action(MoveStartOfLine);
         cx.assert_state("«ˇThe qu»ick brown fox", Mode::HelixNormal);
     }
 

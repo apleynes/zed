@@ -11,6 +11,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_grapheme_boundary_debug() {
+        let text = "Jumping\n    \nback through a newline selects whitespace";
+        let rope = Rope::from(text);
+        
+        // Print the entire string with indices for debugging
+        println!("Text: '{}'", text);
+        for (i, ch) in rope.chars().enumerate() {
+            println!("Index {}: '{}'", i, ch);
+            if i > 15 { break; }
+        }
+        
+        // Test the specific case causing our issue
+        // In the failing test: Range::new(0, 13) -> Range::new(12, 8)
+        let char_13 = rope.chars().nth(13).unwrap();
+        println!("Character at index 13: '{}'", char_13);
+        
+        let prev_boundary = prev_grapheme_boundary(&rope, 13);
+        println!("prev_grapheme_boundary(13) = {}", prev_boundary);
+        
+        // Let's see what character is at index 12
+        let char_12 = rope.chars().nth(12).unwrap();
+        println!("Character at index 12: '{}'", char_12);
+        
+        // Find where 'b' actually is
+        for (i, ch) in rope.chars().enumerate() {
+            if ch == 'b' {
+                println!("Found 'b' at index: {}", i);
+                break;
+            }
+        }
+        
+        // Test the exact failing case
+        let input_range = Range::new(0, 13);
+        let result = move_prev_word_start(&rope, input_range, 1);
+        println!("move_prev_word_start result: {:?}", result);
+        println!("Expected: Range {{ anchor: 12, head: 8 }}");
+    }
+
+    #[test]
     fn test_behaviour_when_moving_to_start_of_next_words() {
         let tests = [
             ("Basic forward motion stops at the first space",

@@ -26,6 +26,8 @@ mod find_movement_tests;
 
 #[cfg(test)]
 mod core_tests;
+mod debug_harness;
+mod boundary_debug;
 
 use editor::{Editor, scroll::Autoscroll};
 use gpui::{Window, Context, actions};

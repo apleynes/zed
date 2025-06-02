@@ -2,6 +2,7 @@ use crate::{motion::Motion, Vim};
 use editor::{Editor, scroll::Autoscroll, DisplayPoint, Bias, display_map::DisplayRow};
 use gpui::{actions, Context, Window};
 
+
 actions!(
     helix_movement,
     [
@@ -15,13 +16,14 @@ actions!(
         MoveNextWordStart,
         MovePrevWordStart,
         MoveNextWordEnd,
+        MovePrevWordEnd,
         MoveStartOfLine,
         MoveEndOfLine,
         MoveFirstNonWhitespace,
         MoveStartOfDocument,
         MoveEndOfDocument,
         
-        // Find movements (create selections to target character)
+        // Find movements
         FindForward,
         FindBackward,
         FindForwardTill,
@@ -31,6 +33,10 @@ actions!(
         MoveNextWordStartIgnorePunctuation,
         MovePrevWordStartIgnorePunctuation,
         MoveNextWordEndIgnorePunctuation,
+        MovePrevWordEndIgnorePunctuation,
+        
+        // Other movements
+        MatchBrackets,
     ]
 );
 
@@ -67,6 +73,10 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     
     Vim::action(editor, cx, |vim, _: &MoveNextWordEnd, window, cx| {
         vim.helix_word_move_cursor(Motion::NextWordEnd { ignore_punctuation: false }, window, cx);
+    });
+    
+    Vim::action(editor, cx, |vim, _: &MovePrevWordEnd, window, cx| {
+        vim.helix_word_move_cursor(Motion::PreviousWordEnd { ignore_punctuation: false }, window, cx);
     });
     
     Vim::action(editor, cx, |vim, _: &MoveStartOfLine, window, cx| {
@@ -117,6 +127,10 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     
     Vim::action(editor, cx, |vim, _: &MoveNextWordEndIgnorePunctuation, window, cx| {
         vim.helix_word_move_cursor(Motion::NextWordEnd { ignore_punctuation: true }, window, cx);
+    });
+    
+    Vim::action(editor, cx, |vim, _: &MovePrevWordEndIgnorePunctuation, window, cx| {
+        vim.helix_word_move_cursor(Motion::PreviousWordEnd { ignore_punctuation: true }, window, cx);
     });
 }
 
@@ -209,38 +223,93 @@ impl Vim {
             // In normal mode, create selection from current cursor to destination
             self.update_editor(window, cx, |_, editor, window, cx| {
                 let text_layout_details = editor.text_layout_details(window);
+                
+                // Extract buffer data outside the selection closure
+                let buffer = editor.buffer().read(cx);
+                let snapshot = buffer.snapshot(cx);
+                let rope = rope::Rope::from(snapshot.text());
+                
                 editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
                     s.move_with(|map, selection| {
                         // Get current cursor position
                         let start_pos = selection.head();
                         
-                        // Calculate destination position using motion system
-                        if let Some((mut end_pos, goal)) = motion.move_point(
-                            map,
-                            start_pos,
-                            selection.goal,
-                            Some(1),
-                            &text_layout_details,
-                        ) {
-                            // For word end motions, vim returns exclusive position but Helix expects inclusive
-                            // Adjust the position to land ON the last character, not after it
-                            if matches!(motion, Motion::NextWordEnd { .. } | Motion::PreviousWordEnd { .. }) {
-                                end_pos = editor::movement::right(map, end_pos);
-                            }
-                            // For document motions, Helix expects absolute positions
-                            if matches!(motion, Motion::StartOfDocument) {
-                                // Go to absolute beginning of document (row 0, column 0)
-                                end_pos = map.clip_point(DisplayPoint::new(DisplayRow(0), 0), Bias::Left);
-                            } else if matches!(motion, Motion::EndOfDocument) {
-                                // Go to absolute end of document (last character of content)
-                                let max_pos = map.max_point();
-                                end_pos = editor::movement::left(map, max_pos);
-                            }
+                        // Use Helix core movement functions for word movements
+                        if matches!(motion, Motion::NextWordStart { .. } | Motion::PreviousWordStart { .. } | 
+                                          Motion::NextWordEnd { .. } | Motion::PreviousWordEnd { .. }) {
+                            // Convert to Helix coordinate system
+                            let start_offset = start_pos.to_offset(map, editor::Bias::Left);
+                            let helix_range = super::core::Range::new(start_offset, start_offset);
                             
-                            // Create selection from start to end position
-                            // In helix, cursor is at the end of the selection
-                            selection.set_tail(start_pos, selection.goal);
-                            selection.set_head(end_pos, goal);
+                            // Call our Helix core functions
+                            let new_range = match motion {
+                                Motion::NextWordStart { ignore_punctuation: false } => {
+                                    super::core::move_next_word_start(&rope, helix_range, 1)
+                                },
+                                Motion::PreviousWordStart { ignore_punctuation: false } => {
+                                    super::core::move_prev_word_start(&rope, helix_range, 1)
+                                },
+                                Motion::NextWordEnd { ignore_punctuation: false } => {
+                                    super::core::move_next_word_end(&rope, helix_range, 1)
+                                },
+                                Motion::PreviousWordEnd { ignore_punctuation: false } => {
+                                    super::core::move_prev_word_end(&rope, helix_range, 1)
+                                },
+                                Motion::NextWordStart { ignore_punctuation: true } => {
+                                    super::core::move_next_long_word_start(&rope, helix_range, 1)
+                                },
+                                Motion::PreviousWordStart { ignore_punctuation: true } => {
+                                    super::core::move_prev_long_word_start(&rope, helix_range, 1)
+                                },
+                                Motion::NextWordEnd { ignore_punctuation: true } => {
+                                    super::core::move_next_long_word_end(&rope, helix_range, 1)
+                                },
+                                Motion::PreviousWordEnd { ignore_punctuation: true } => {
+                                    super::core::move_prev_long_word_end(&rope, helix_range, 1)
+                                },
+                                _ => helix_range,
+                            };
+                            
+                            // Convert back to Zed coordinate system
+                            let anchor_point = snapshot.offset_to_point(new_range.anchor);
+                            let head_point = snapshot.offset_to_point(new_range.head);
+                            
+                            let anchor_display = DisplayPoint::new(DisplayRow(anchor_point.row), anchor_point.column);
+                            let head_display = DisplayPoint::new(DisplayRow(head_point.row), head_point.column);
+                            
+                            eprintln!("DEBUG coordinate conversion:");
+                            eprintln!("  new_range: {:?}", new_range);
+                            eprintln!("  anchor_point: {:?}, head_point: {:?}", anchor_point, head_point);
+                            eprintln!("  anchor_display: {:?}, head_display: {:?}", anchor_display, head_display);
+                            eprintln!("  original start_pos: {:?}", start_pos);
+                            
+                            // Create selection in Helix style (anchor to head)
+                            selection.set_tail(anchor_display, selection.goal);
+                            selection.set_head(head_display, selection.goal);
+                        } else {
+                            // Use existing vim motion system for non-word movements
+                            if let Some((mut end_pos, goal)) = motion.move_point(
+                                map,
+                                start_pos,
+                                selection.goal,
+                                Some(1),
+                                &text_layout_details,
+                            ) {
+                                // For document motions, Helix expects absolute positions
+                                if matches!(motion, Motion::StartOfDocument) {
+                                    // Go to absolute beginning of document (row 0, column 0)
+                                    end_pos = map.clip_point(DisplayPoint::new(DisplayRow(0), 0), Bias::Left);
+                                } else if matches!(motion, Motion::EndOfDocument) {
+                                    // Go to absolute end of document (last character of content)
+                                    let max_pos = map.max_point();
+                                    end_pos = editor::movement::left(map, max_pos);
+                                }
+                                
+                                // Create selection from start to end position
+                                // In helix, cursor is at the end of the selection
+                                selection.set_tail(start_pos, selection.goal);
+                                selection.set_head(end_pos, goal);
+                            }
                         }
                     });
                 });

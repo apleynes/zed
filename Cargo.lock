@@ -17261,6 +17261,7 @@ dependencies = [
  "project_panel",
  "regex",
  "release_channel",
+ "rope",
  "schemars",
  "search",
  "serde",

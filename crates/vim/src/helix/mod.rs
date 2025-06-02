@@ -1,6 +1,7 @@
 pub mod selections;
 pub mod movement;
 pub mod mode;
+pub mod core;
 
 #[cfg(test)]
 mod test;
@@ -22,6 +23,9 @@ mod selection_operation_tests;
 
 #[cfg(test)]
 mod find_movement_tests;
+
+#[cfg(test)]
+mod core_tests;
 
 use editor::{Editor, scroll::Autoscroll};
 use gpui::{Window, Context, actions};

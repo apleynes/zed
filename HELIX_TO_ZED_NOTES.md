@@ -440,6 +440,86 @@ Helix cursor positioning follows specific rules:
 **Phase 2 Complete**: Core Helix selection paradigm fully implemented and validated.
 **Next milestone**: Text objects (`mi`, `ma`), regex selection (`s`, `S`), advanced operations.
 
+## ✅ PHASE 3: WORD MOVEMENT GROUND TRUTH IMPLEMENTATION (IN PROGRESS)
+
+### Current Status: Compilation Success, Partial Test Passing
+
+**✅ Compilation**: All word movement tests compile without errors
+**📊 Test Results**: 10/17 tests passing (59% pass rate) 
+**🔍 Root Cause Identified**: Fundamental motion semantics mismatch
+
+### Key Discovery: Helix Selection vs Zed Motion Paradigm
+
+**Helix Selection Behavior** (from `helix/helix-core/src/selection.rs`):
+- `Range::new(anchor, head)` where `head` is cursor position
+- `cursor()` returns `prev_grapheme_boundary(text, head)` when `head > anchor`
+- Selections include whitespace and span entire words/ranges
+- Word movements create selections that extend through complete text spans
+
+**Current Zed Implementation Issue**:
+- Zed's `Motion::NextWordStart` goes to START of next word (cursor movement)
+- Helix's `move_next_word_start` creates SELECTION spanning entire word + whitespace
+- Fundamental paradigm difference: movement vs selection-first
+
+### Helix Test Case Analysis (Ground Truth)
+
+From `helix/helix-core/src/movement.rs` test cases:
+
+```rust
+// " Starting from a boundary advances the anchor"
+// Range::new(0, 0) → Range::new(1, 10)
+// Selects " Starting " (space + word + space)
+
+// "Basic forward motion stops at the first space" 
+// Range::new(0, 0) → Range::new(0, 6)
+// Selects "Basic " (word + trailing space)
+```
+
+**Key Insight**: Helix word movements are SELECTION operations that include trailing whitespace, not cursor movements to word boundaries.
+
+### Implementation Architecture Needs
+
+**Current Problem**: Zed implementation uses `Motion::NextWordStart` which moves cursor to word start, but Helix needs selection that spans to word end + whitespace.
+
+**Required Refactoring**:
+1. **Low-level functions**: Direct rope/text operations like Helix
+2. **Testable units**: Pure functions that take `RopeSlice` and `Range`
+3. **Editor integration**: Higher-level functions that interface with Zed's editor
+4. **Test parity**: Mirror Helix's test structure with (text, start_range, expected_range) tuples
+
+### Helix Code Structure Analysis
+
+**Helix Movement Architecture**:
+```rust
+// Public API
+pub fn move_next_word_start(slice: RopeSlice, range: Range, count: usize) -> Range
+
+// Internal implementation  
+fn word_move(slice: RopeSlice, range: Range, count: usize, target: WordMotionTarget) -> Range
+
+// Testing approach
+for (sample, scenario) in tests {
+    for (count, begin, expected_end) in scenario.into_iter() {
+        let range = move_next_word_start(Rope::from(sample).slice(..), begin, count);
+        assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+    }
+}
+```
+
+**Benefits of This Structure**:
+- **Pure functions**: No editor/window dependencies for core logic
+- **Direct testability**: Test rope operations without UI framework
+- **Ground truth validation**: Exact same test format as Helix
+- **Incremental development**: Build up from verified low-level functions
+
+### Next Steps: Refactoring Plan
+
+1. **Create pure movement functions** mirroring Helix's API
+2. **Implement rope-based word movements** that return proper Range selections
+3. **Add comprehensive test suite** using Helix's test case format
+4. **Integrate with editor** through higher-level wrapper functions
+5. **Validate against all Helix test cases** for complete behavioral parity
+
 ## Conclusion
 
 The Helix movement and selection system is **successfully implemented and validated** in Zed. The fundamental insight that **Helix separates selection creation from actions** has been proven through comprehensive testing against the actual Helix codebase.
@@ -448,6 +528,12 @@ The Helix movement and selection system is **successfully implemented and valida
 - ✅ **67+ tests passing**: 47 original + 20+ Helix ground truth tests
 - ✅ **Core paradigm working**: Selection + action model fully functional  
 - ✅ **Real Helix behavior**: Test cases derived from actual Helix implementation
+
+**Phase 3 Status: In Progress - Word Movement Ground Truth**
+- ✅ **Analysis complete**: Root cause identified and solution path defined
+- 🔄 **Implementation needed**: Refactor to mirror Helix's pure function approach
+- 📊 **Current progress**: 10/17 tests passing, compilation successful
+- 🎯 **Goal**: 100% behavioral parity with Helix word movement semantics
 - ✅ **No regressions**: All existing vim functionality preserved
 - ✅ **Architecture ready**: Clean foundation for Phase 3 text objects
 

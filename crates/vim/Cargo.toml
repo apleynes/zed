@@ -34,6 +34,7 @@ nvim-rs = { git = "https://github.com/KillTheMule/nvim-rs", rev = "764dd270c642f
 picker.workspace = true
 project.workspace = true
 regex.workspace = true
+rope.workspace = true
 schemars.workspace = true
 search.workspace = true
 serde.workspace = true

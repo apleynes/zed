@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Set environment variable RUST_BACKTRACE=1 when running tests and debugging.
+Use the linter tool to identify and fix issues.
+Port helix codebase and logic and tests since those have been 100% tested and intended behavior. Do not simplify and avoid tests.
+
+If running into fundamental behavior issues in library dependencies that differ, set up a debugging harness to understand and isolate any differences in behavior of the underlying libraries. This will help identify the root cause of the issue and ensure that the solution is specific to the problem at hand.
+Helix codebase is at /Users/apleynes/dev/helix and added to the workspace

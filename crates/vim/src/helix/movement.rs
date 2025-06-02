@@ -200,6 +200,8 @@ impl Vim {
                     s.move_with(|map, selection| {
                         let start_pos = selection.head();
                         
+                        eprintln!("DEBUG: motion = {:?}", motion);
+                        
                         // Calculate destination position using motion system
                         if let Some((mut end_pos, goal)) = motion.move_point(
                             map,
@@ -234,9 +236,12 @@ impl Vim {
                         // Get current cursor position
                         let start_pos = selection.head();
                         
+                        eprintln!("DEBUG: motion = {:?}", motion);
+                        
                         // Use Helix core movement functions for word movements
                         if matches!(motion, Motion::NextWordStart { .. } | Motion::PreviousWordStart { .. } | 
                                           Motion::NextWordEnd { .. } | Motion::PreviousWordEnd { .. }) {
+                            eprintln!("DEBUG: Taking Helix core branch");
                             // Convert to Helix coordinate system
                             let start_offset = start_pos.to_offset(map, editor::Bias::Left);
                             let helix_range = super::core::Range::new(start_offset, start_offset);
@@ -272,6 +277,8 @@ impl Vim {
                             
                             // Convert back to Zed coordinate system
                             let anchor_point = snapshot.offset_to_point(new_range.anchor);
+                            // Helix ranges are inclusive, but Zed selections work with the actual positions
+                            // Don't subtract 1 - use the actual head position from Helix
                             let head_point = snapshot.offset_to_point(new_range.head);
                             
                             let anchor_display = DisplayPoint::new(DisplayRow(anchor_point.row), anchor_point.column);
@@ -283,10 +290,29 @@ impl Vim {
                             eprintln!("  anchor_display: {:?}, head_display: {:?}", anchor_display, head_display);
                             eprintln!("  original start_pos: {:?}", start_pos);
                             
+                            // Debug: Show what text is being selected
+                            let text = snapshot.text();
+                            let (start_offset, end_offset) = if new_range.head >= new_range.anchor {
+                                (new_range.anchor, new_range.head)
+                            } else {
+                                (new_range.head, new_range.anchor)
+                            };
+                            let selected_text = text.chars().skip(start_offset).take(end_offset - start_offset).collect::<String>();
+                            eprintln!("  selected_text: '{}'", selected_text);
+                            let context_start = start_offset.saturating_sub(2);
+                            let context_len = (end_offset - start_offset) + 4;
+                            eprintln!("  text around selection: '{}'", text.chars().skip(context_start).take(context_len).collect::<String>());
+                            
                             // Create selection in Helix style (anchor to head)
                             selection.set_tail(anchor_display, selection.goal);
                             selection.set_head(head_display, selection.goal);
+                            
+                            eprintln!("DEBUG: After setting selection:");
+                            eprintln!("  selection.tail(): {:?}", selection.tail());
+                            eprintln!("  selection.head(): {:?}", selection.head());
+                            eprintln!("  selection.is_empty(): {}", selection.is_empty());
                         } else {
+                            eprintln!("DEBUG: Taking vim motion system branch");
                             // Use existing vim motion system for non-word movements
                             if let Some((mut end_pos, goal)) = motion.move_point(
                                 map,

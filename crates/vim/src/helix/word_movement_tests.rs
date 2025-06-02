@@ -146,33 +146,35 @@ mod test {
     async fn test_helix_word_back_basic(cx: &mut gpui::TestAppContext) {
         // From Helix: helix/helix-core/src/movement.rs:1335-1336
         // "Basic backward motion from the middle of a word"
+        // Range::new(3, 3) to Range::new(4, 0) - selects "Basi" (backward)
         let mut cx = VimTestContext::new(cx, true).await;
         
-        cx.set_state("Basic backˇward", Mode::HelixNormal);
+        cx.set_state("Basˇic backward motion from the middle of a word", Mode::HelixNormal);
         
-        // b should select from current position to start of word
+        // b should select from current position to start of word (backward selection)
         cx.simulate_keystrokes("b");
-        cx.assert_state("Basic «ˇback»ward", Mode::HelixNormal);
+        cx.assert_state("«ˇBasi»c backward motion from the middle of a word", Mode::HelixNormal);
     }
 
     #[gpui::test]
     async fn test_helix_word_back_whitespace(cx: &mut gpui::TestAppContext) {
-        // From Helix: helix/helix-core/src/movement.rs:1341-1342
-        // "Starting from whitespace moves to first space in sequence"
+        // From Helix: helix/helix-core/src/movement.rs:1349
+        // "    Starting from whitespace moves to first space in sequence"
+        // When cursor is at position 4 ('S'), backward movement should select "    S"
         let mut cx = VimTestContext::new(cx, true).await;
         
-        cx.set_state("word    ˇback", Mode::HelixNormal);
+        cx.set_state("    ˇStarting from whitespace moves to first space in sequence", Mode::HelixNormal);
         
-        // b should select back to start of whitespace
+        // b should select back to start of whitespace (backward selection including current char)
         cx.simulate_keystrokes("b");
-        cx.assert_state("«ˇword    »back", Mode::HelixNormal);
+        cx.assert_state("«ˇ    S»tarting from whitespace moves to first space in sequence", Mode::HelixNormal);
     }
 
     #[gpui::test]
     async fn test_helix_word_newlines(cx: &mut gpui::TestAppContext) {
         // From Helix: helix/helix-core/src/movement.rs:1008-1009
         // "Jumping\n    into starting whitespace selects the spaces before 'into'"
-        // Range::new(0, 7) to Range::new(8, 12) - selects "\n    "
+        // Range::new(0, 7) to Range::new(8, 12) - selects "    " (spaces only, not newline)
         let mut cx = VimTestContext::new(cx, true).await;
         
         cx.set_state(indoc! {"
@@ -180,11 +182,11 @@ mod test {
                 into starting
         "}, Mode::HelixNormal);
         
-        // w should select newline and whitespace before 'into'
+        // w should select only the whitespace before 'into', not the newline
         cx.simulate_keystrokes("w");
         cx.assert_state(indoc! {"
-            Jumping«
-                ˇ»into starting
+            Jumping
+            «    ˇ»into starting
         "}, Mode::HelixNormal);
     }
 
@@ -253,9 +255,9 @@ mod test {
         
         cx.set_state("ˇ Starting from", Mode::HelixNormal);
         
-        // w from space boundary should select " Starting"
+        // w from space boundary should select "Starting " (word + trailing space)
         cx.simulate_keystrokes("w");
-        cx.assert_state("« Startingˇ» from", Mode::HelixNormal);
+        cx.assert_state(" «Starting ˇ»from", Mode::HelixNormal);
     }
 
     #[gpui::test]

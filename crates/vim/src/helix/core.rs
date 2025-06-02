@@ -245,32 +245,23 @@ fn word_move(text: &Rope, range: Range, count: usize, target: WordMotionTarget) 
             | WordMotionTarget::PrevSubWordEnd
     );
 
+    eprintln!("DEBUG word_move: target={:?}, is_prev={}, input_range={:?}", target, is_prev, range);
+
     // Special-case early-out
     if (is_prev && range.head == 0) || (!is_prev && range.head == text.len()) {
         return range;
     }
 
-
-
-    // Prepare the range appropriately based on the target movement direction
-    #[allow(clippy::collapsible_else_if)]
+    // Prepare the range appropriately based on the target movement direction.
+    // This is addressing two things at once:
+    //   1. Block-cursor semantics.
+    //   2. The anchor position being irrelevant to the output result.
+    #[allow(clippy::collapsible_else_if)] // Makes the structure clearer in this case.
     let start_range = if is_prev {
         if range.anchor < range.head {
-            let pgb = prev_grapheme_boundary(text, range.head);
-            
-            // Special case for newline-preceded word starts
-            // If head is at a word start and preceded by a newline, use the newline as anchor
-            let all_chars: Vec<char> = text.chars().collect();
-            let current_char = all_chars.get(range.head).copied().unwrap_or('\0');
-            let prev_char = if range.head > 0 { all_chars.get(range.head - 1).copied() } else { None };
-            
-            if is_word_char(current_char) && prev_char.map(char_is_line_ending).unwrap_or(false) {
-                Range::new(pgb, pgb)
-            } else {
-                Range::new(range.head, pgb)
-            }
+            Range::new(range.head, prev_grapheme_boundary(text, range.head))
         } else {
-            Range::new(range.head, range.head)
+            Range::new(next_grapheme_boundary(text, range.head), range.head)
         }
     } else {
         if range.anchor < range.head {
@@ -280,32 +271,21 @@ fn word_move(text: &Rope, range: Range, count: usize, target: WordMotionTarget) 
         }
     };
 
-
+    eprintln!("DEBUG word_move: start_range after preparation={:?}", start_range);
 
     // Do the main work
     let mut range = start_range;
     
-    // Special case: For NextWordStart when starting from whitespace,
-    // the range preparation already gives us the correct result
-    if matches!(target, WordMotionTarget::NextWordStart) {
-        let all_chars: Vec<char> = text.chars().collect();
-        let start_char = all_chars.get(range.anchor).copied().unwrap_or('\0');
-        if start_char.is_whitespace() && range.anchor != range.head {
-            eprintln!("EARLY TERMINATION: range={:?}, start_char='{}'", range, start_char);
-            return range;
-        }
-    }
-    
-    for _ in 0..count {
+    for i in 0..count {
         let next_range = range_to_target(text, range, target);
+        eprintln!("DEBUG word_move: iteration {}, range={:?} -> next_range={:?}", i, range, next_range);
         if range == next_range {
             break;
         }
         range = next_range;
     }
     
-
-    
+    eprintln!("DEBUG word_move: final_range={:?}", range);
     range
 }
 
@@ -383,7 +363,7 @@ pub fn range_to_target(text: &Rope, origin: Range, target: WordMotionTarget) -> 
             
             if prev_ch.is_none() || reached_target(target, prev_ch.unwrap(), next_ch) {
                 if head == head_start {
-                    anchor = head;
+                    anchor = head; // First boundary advances the anchor
                 } else {
                     break;
                 }
@@ -399,16 +379,7 @@ pub fn range_to_target(text: &Rope, origin: Range, target: WordMotionTarget) -> 
             
             if prev_ch.is_none() || reached_target(target, prev_ch.unwrap(), next_ch) {
                 if head == head_start {
-                    // For NextWordStart from whitespace, preserve original anchor
-                    if matches!(target, WordMotionTarget::NextWordStart) {
-                        let all_chars: Vec<char> = text.chars().collect();
-                        let start_char = all_chars.get(anchor).copied().unwrap_or('\0');
-                        if !start_char.is_whitespace() {
-                            anchor = head;
-                        }
-                    } else {
-                        anchor = head;
-                    }
+                    anchor = head; // First boundary advances the anchor
                 } else {
                     break;
                 }
@@ -546,7 +517,55 @@ mod tests {
         }
     }
 
-
+    #[test]
+    fn debug_boundary_behavior() {
+        let text = Rope::from(" Starting from");
+        let input_range = Range::new(0, 0);
+        
+        println!("=== DEBUG BOUNDARY BEHAVIOR ===");
+        println!("Text: '{}'", text.chars().collect::<String>());
+        println!("Input range: {:?}", input_range);
+        
+        // Test the range preparation step
+        let is_prev = false; // NextWordStart
+        let start_range = if is_prev {
+            if input_range.anchor < input_range.head {
+                Range::new(input_range.head, prev_grapheme_boundary(&text, input_range.head))
+            } else {
+                Range::new(next_grapheme_boundary(&text, input_range.head), input_range.head)
+            }
+        } else {
+            if input_range.anchor < input_range.head {
+                Range::new(prev_grapheme_boundary(&text, input_range.head), input_range.head)
+            } else {
+                Range::new(input_range.head, next_grapheme_boundary(&text, input_range.head))
+            }
+        };
+        
+        println!("Start range after preparation: {:?}", start_range);
+        
+        // Test the range_to_target step
+        let result_range = range_to_target(&text, start_range, WordMotionTarget::NextWordStart);
+        println!("Result range after range_to_target: {:?}", result_range);
+        
+        // Test the full function
+        let full_result = move_next_word_start(&text, input_range, 1);
+        println!("Full function result: {:?}", full_result);
+        
+        // Expected from Helix test case
+        let expected = Range::new(1, 10);
+        println!("Expected: {:?}", expected);
+        
+        // Show what text is selected
+        let selected_text = text.chars().skip(result_range.anchor).take(result_range.head - result_range.anchor).collect::<String>();
+        println!("Selected text: '{}'", selected_text.replace('\n', "\\n"));
+        
+        // Also show the expected selected text
+        let expected_text = text.chars().skip(expected.anchor).take(expected.head - expected.anchor).collect::<String>();
+        println!("Expected text: '{}'", expected_text.replace('\n', "\\n"));
+        
+        assert_eq!(full_result, expected);
+    }
 
     #[test]
     fn test_range_operations() {
@@ -629,5 +648,89 @@ mod tests {
         
         let prev_pos = prev_grapheme_boundary(&text, pos);
         assert_eq!(prev_pos, 0);
+    }
+
+    #[test]
+    fn test_helix_whitespace_backward_exact() {
+        // Exact Helix test case:
+        // ("    Starting from whitespace moves to first space in sequence",
+        //     vec![(1, Range::new(0, 4), Range::new(4, 0))]),
+        
+        let text = Rope::from("    Starting from whitespace moves to first space in sequence");
+        let input_range = Range::new(0, 4);  // Helix test input
+        let expected_range = Range::new(4, 0);  // Helix test expected output
+        
+        println!("=== HELIX WHITESPACE BACKWARD TEST ===");
+        println!("Text: '{}'", text.chars().take(20).collect::<String>());
+        println!("Input range: {:?}", input_range);
+        println!("Expected range: {:?}", expected_range);
+        
+        let result_range = move_prev_word_start(&text, input_range, 1);
+        println!("Actual result: {:?}", result_range);
+        
+        // Show what text is selected
+        let selected_text = text.chars().skip(result_range.anchor).take(result_range.head - result_range.anchor).collect::<String>();
+        println!("Selected text: '{}'", selected_text.replace('\n', "\\n"));
+        
+        // Also show the expected selected text
+        let expected_text = text.chars().skip(expected_range.anchor).take(expected_range.head - expected_range.anchor).collect::<String>();
+        println!("Expected text: '{}'", expected_text.replace('\n', "\\n"));
+        
+        assert_eq!(result_range, expected_range);
+    }
+
+    #[test]
+    fn test_cursor_at_position_4_backward() {
+        // Our actual scenario: cursor at position 4 (point range)
+        let text = Rope::from("    Starting from whitespace moves to first space in sequence");
+        let input_range = Range::new(4, 4);  // Cursor at position 4 (point range)
+        
+        println!("=== CURSOR AT POSITION 4 BACKWARD TEST ===");
+        println!("Text: '{}'", text.chars().take(20).collect::<String>());
+        println!("Input range: {:?} (cursor at position 4)", input_range);
+        
+        let result_range = move_prev_word_start(&text, input_range, 1);
+        println!("Actual result: {:?}", result_range);
+        
+        // Let's see what our implementation produces and understand if it's correct
+        let selected_text = if result_range.head <= result_range.anchor {
+            text.chars().skip(result_range.head).take(result_range.anchor - result_range.head).collect::<String>()
+        } else {
+            text.chars().skip(result_range.anchor).take(result_range.head - result_range.anchor).collect::<String>()
+        };
+        println!("Selected text: '{}'", selected_text);
+        
+        // For now, just verify it doesn't panic and produces a reasonable result
+        assert!(result_range.head <= result_range.anchor); // Should be backward selection
+        assert!(result_range.head == 0); // Should go to start of whitespace
+    }
+
+    #[test]
+    fn test_helix_newline_exact() {
+        // Exact Helix test case:
+        // ("Jumping\n    into starting whitespace selects the spaces before 'into'",
+        //     vec![(1, Range::new(0, 7), Range::new(8, 12))]),
+        
+        let text = Rope::from("Jumping\n    into starting");
+        let input_range = Range::new(0, 7);  // Helix test input (cursor after "Jumping")
+        let expected_range = Range::new(8, 12);  // Helix test expected output
+        
+        println!("=== HELIX NEWLINE TEST ===");
+        println!("Text: '{}'", text.chars().collect::<String>().replace('\n', "\\n"));
+        println!("Input range: {:?}", input_range);
+        println!("Expected range: {:?}", expected_range);
+        
+        let result_range = move_next_word_start(&text, input_range, 1);
+        println!("Actual result: {:?}", result_range);
+        
+        // Show what text is selected
+        let selected_text = text.chars().skip(result_range.anchor).take(result_range.head - result_range.anchor).collect::<String>();
+        println!("Selected text: '{}'", selected_text.replace('\n', "\\n"));
+        
+        // Also show the expected selected text
+        let expected_text = text.chars().skip(expected_range.anchor).take(expected_range.head - expected_range.anchor).collect::<String>();
+        println!("Expected text: '{}'", expected_text.replace('\n', "\\n"));
+        
+        assert_eq!(result_range, expected_range);
     }
 }

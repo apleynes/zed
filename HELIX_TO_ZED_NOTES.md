@@ -288,21 +288,15 @@ Successfully implemented all core selection manipulation features:
 ### ❌ KNOWN ISSUES IN PHASE 2
 
 #### Selection Operations Issues
-1. **`&` (align selections)** - Not working in manual testing
-   - Function implemented but may have UI/behavior issues
    
-2. **Rotate selections** - Not working properly
+1. **Rotate selections** - Not working properly
    - Function exists but no visual indicator of primary selection
    - Always drops first selection instead of rotating primary
    
-3. **Merge selections (`Alt--`)** - Broken
+2. **Merge selections (`Alt--`)** - Broken
    - `merge_consecutive_selections` works fine
    - Regular `merge_selections` has issues
 
-#### Movement + Selection Issues  
-4. **Shift + movement keys** - Not creating selections
-   - `Shift+w`, `Shift+b`, `Shift+e` should select like `w`, `b`, `e`
-   - Currently only moves cursor without selecting
 
 ### Phase 3: Text Objects and Matching (Next)
 - `s` - select regex matches within selections

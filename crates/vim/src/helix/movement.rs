@@ -200,8 +200,6 @@ impl Vim {
                     s.move_with(|map, selection| {
                         let start_pos = selection.head();
                         
-                        eprintln!("DEBUG: motion = {:?}", motion);
-                        
                         // Calculate destination position using motion system
                         if let Some((mut end_pos, goal)) = motion.move_point(
                             map,
@@ -236,15 +234,25 @@ impl Vim {
                         // Get current cursor position
                         let start_pos = selection.head();
                         
-                        eprintln!("DEBUG: motion = {:?}", motion);
-                        
                         // Use Helix core movement functions for word movements
                         if matches!(motion, Motion::NextWordStart { .. } | Motion::PreviousWordStart { .. } | 
                                           Motion::NextWordEnd { .. } | Motion::PreviousWordEnd { .. }) {
-                            eprintln!("DEBUG: Taking Helix core branch");
-                            // Convert to Helix coordinate system
-                            let start_offset = start_pos.to_offset(map, editor::Bias::Left);
-                            let helix_range = super::core::Range::new(start_offset, start_offset);
+                            
+                            // Convert to rope-based coordinates
+                            let anchor_byte_offset = selection.tail().to_offset(map, editor::Bias::Left);
+                            let head_byte_offset = selection.head().to_offset(map, editor::Bias::Left);
+                            
+                            let anchor_offset = super::core::byte_offset_to_char_index(&rope, anchor_byte_offset);
+                            let head_offset = super::core::byte_offset_to_char_index(&rope, head_byte_offset);
+                            
+                            // Create Helix range preserving current selection state
+                            let helix_range = if selection.is_empty() {
+                                // No selection - create point range from cursor
+                                super::core::Range::new(head_offset, head_offset)
+                            } else {
+                                // Existing selection - preserve anchor and head
+                                super::core::Range::new(anchor_offset, head_offset)
+                            };
                             
                             // Call our Helix core functions
                             let new_range = match motion {
@@ -276,43 +284,37 @@ impl Vim {
                             };
                             
                             // Convert back to Zed coordinate system
-                            let anchor_point = snapshot.offset_to_point(new_range.anchor);
-                            // Helix ranges are inclusive, but Zed selections work with the actual positions
-                            // Don't subtract 1 - use the actual head position from Helix
-                            let head_point = snapshot.offset_to_point(new_range.head);
-                            
-                            let anchor_display = DisplayPoint::new(DisplayRow(anchor_point.row), anchor_point.column);
-                            let head_display = DisplayPoint::new(DisplayRow(head_point.row), head_point.column);
-                            
-                            eprintln!("DEBUG coordinate conversion:");
-                            eprintln!("  new_range: {:?}", new_range);
-                            eprintln!("  anchor_point: {:?}, head_point: {:?}", anchor_point, head_point);
-                            eprintln!("  anchor_display: {:?}, head_display: {:?}", anchor_display, head_display);
-                            eprintln!("  original start_pos: {:?}", start_pos);
-                            
-                            // Debug: Show what text is being selected
-                            let text = snapshot.text();
-                            let (start_offset, end_offset) = if new_range.head >= new_range.anchor {
-                                (new_range.anchor, new_range.head)
+                            if new_range.head > new_range.anchor {
+                                // Forward movement: selection from anchor to head
+                                let anchor_byte_offset = super::core::char_index_to_byte_offset(&rope, new_range.anchor);
+                                let head_byte_offset = super::core::char_index_to_byte_offset(&rope, new_range.head);
+                                
+                                let anchor_point = snapshot.offset_to_point(anchor_byte_offset);
+                                let head_point = snapshot.offset_to_point(head_byte_offset);
+                                
+                                let anchor_display = DisplayPoint::new(DisplayRow(anchor_point.row), anchor_point.column);
+                                let head_display = DisplayPoint::new(DisplayRow(head_point.row), head_point.column);
+                                
+                                selection.set_tail(anchor_display, selection.goal);
+                                selection.set_head(head_display, selection.goal);
                             } else {
-                                (new_range.head, new_range.anchor)
-                            };
-                            let selected_text = text.chars().skip(start_offset).take(end_offset - start_offset).collect::<String>();
-                            eprintln!("  selected_text: '{}'", selected_text);
-                            let context_start = start_offset.saturating_sub(2);
-                            let context_len = (end_offset - start_offset) + 4;
-                            eprintln!("  text around selection: '{}'", text.chars().skip(context_start).take(context_len).collect::<String>());
-                            
-                            // Create selection in Helix style (anchor to head)
-                            selection.set_tail(anchor_display, selection.goal);
-                            selection.set_head(head_display, selection.goal);
-                            
-                            eprintln!("DEBUG: After setting selection:");
-                            eprintln!("  selection.tail(): {:?}", selection.tail());
-                            eprintln!("  selection.head(): {:?}", selection.head());
-                            eprintln!("  selection.is_empty(): {}", selection.is_empty());
+                                // Backward movement: create selection from original cursor to new position
+                                // For backward movements in Helix, the range.head is the new cursor position
+                                // and range.anchor is where the selection should extend to
+                                let head_byte_offset = super::core::char_index_to_byte_offset(&rope, new_range.head);
+                                let anchor_byte_offset = super::core::char_index_to_byte_offset(&rope, new_range.anchor.saturating_sub(1));
+                                
+                                let anchor_point = snapshot.offset_to_point(anchor_byte_offset);
+                                let head_point = snapshot.offset_to_point(head_byte_offset);
+                                
+                                let anchor_display = DisplayPoint::new(DisplayRow(anchor_point.row), anchor_point.column);
+                                let head_display = DisplayPoint::new(DisplayRow(head_point.row), head_point.column);
+                                
+                                // For backward movements, head is the cursor position, anchor is the selection end
+                                selection.set_tail(anchor_display, selection.goal);
+                                selection.set_head(head_display, selection.goal);
+                            }
                         } else {
-                            eprintln!("DEBUG: Taking vim motion system branch");
                             // Use existing vim motion system for non-word movements
                             if let Some((mut end_pos, goal)) = motion.move_point(
                                 map,
@@ -343,7 +345,118 @@ impl Vim {
         }
     }
 
-
-
-
+    /// Helix-style find character movement (f,F,t,T)
+    /// 
+    /// In normal mode: creates selections to target character
+    /// In select mode: extends existing selections to target character
+    pub fn helix_find_cursor(
+        &mut self,
+        motion: Motion,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_helix_select_mode() {
+            // In select mode, extend existing selections by moving only the head
+            self.update_editor(window, cx, |_, editor, window, cx| {
+                // Extract buffer data outside the selection closure
+                let buffer = editor.buffer().read(cx);
+                let snapshot = buffer.snapshot(cx);
+                let rope_text = rope::Rope::from(snapshot.text());
+                
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.move_with(|map, selection| {
+                        // Convert to rope-based coordinates
+                        let anchor_byte_offset = selection.tail().to_offset(map, editor::Bias::Left);
+                        let head_byte_offset = selection.head().to_offset(map, editor::Bias::Left);
+                        
+                        let anchor_offset = super::core::byte_offset_to_char_index(&rope_text, anchor_byte_offset);
+                        let head_offset = super::core::byte_offset_to_char_index(&rope_text, head_byte_offset);
+                        
+                        // Create Helix range preserving current selection state
+                        let helix_range = super::core::Range::new(anchor_offset, head_offset);
+                        
+                        // Apply find character movement
+                        let new_range = match motion {
+                            Motion::FindForward { before: false, char, .. } => {
+                                super::core::find_next_char(&rope_text, helix_range, char, 1)
+                            }
+                            Motion::FindBackward { after: false, char, .. } => {
+                                super::core::find_prev_char(&rope_text, helix_range, char, 1)
+                            }
+                            Motion::FindForward { before: true, char, .. } => {
+                                super::core::till_next_char(&rope_text, helix_range, char, 1)
+                            }
+                            Motion::FindBackward { after: true, char, .. } => {
+                                super::core::till_prev_char(&rope_text, helix_range, char, 1)
+                            }
+                            _ => {
+                                helix_range
+                            }
+                        };
+                        
+                        // Convert back to Zed coordinates and update only the head
+                        let new_head_byte_offset = super::core::char_index_to_byte_offset(&rope_text, new_range.head);
+                        let new_head_point = snapshot.offset_to_point(new_head_byte_offset);
+                        let new_head_display = DisplayPoint::new(DisplayRow(new_head_point.row), new_head_point.column);
+                        
+                        selection.set_head(new_head_display, selection.goal);
+                    });
+                });
+            });
+        } else {
+            // In normal mode, create new selections from cursor to target
+            self.update_editor(window, cx, |_, editor, window, cx| {
+                // Extract buffer data outside the selection closure
+                let buffer = editor.buffer().read(cx);
+                let snapshot = buffer.snapshot(cx);
+                let rope_text = rope::Rope::from(snapshot.text());
+                
+                editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+                    s.move_with(|map, selection| {
+                        // Convert to rope-based coordinates
+                        let head_byte_offset = selection.head().to_offset(map, editor::Bias::Left);
+                        let head_offset = super::core::byte_offset_to_char_index(&rope_text, head_byte_offset);
+                        
+                        // Create point range from current cursor position
+                        let helix_range = super::core::Range::new(head_offset, head_offset);
+                        
+                        // Apply find character movement
+                        let new_range = match motion {
+                            Motion::FindForward { before: false, char, .. } => {
+                                super::core::find_next_char(&rope_text, helix_range, char, 1)
+                            }
+                            Motion::FindBackward { after: false, char, .. } => {
+                                super::core::find_prev_char(&rope_text, helix_range, char, 1)
+                            }
+                            Motion::FindForward { before: true, char, .. } => {
+                                super::core::till_next_char(&rope_text, helix_range, char, 1)
+                            }
+                            Motion::FindBackward { after: true, char, .. } => {
+                                super::core::till_prev_char(&rope_text, helix_range, char, 1)
+                            }
+                            _ => {
+                                helix_range
+                            }
+                        };
+                        
+                        // Convert back to Zed coordinates
+                        let anchor_byte_offset = super::core::char_index_to_byte_offset(&rope_text, new_range.anchor);
+                        let head_byte_offset = super::core::char_index_to_byte_offset(&rope_text, new_range.head);
+                        
+                        let anchor_point = snapshot.offset_to_point(anchor_byte_offset);
+                        let head_point = snapshot.offset_to_point(head_byte_offset);
+                        
+                        let anchor_display = DisplayPoint::new(DisplayRow(anchor_point.row), anchor_point.column);
+                        let head_display = DisplayPoint::new(DisplayRow(head_point.row), head_point.column);
+                        
+                        selection.set_tail(anchor_display, selection.goal);
+                        selection.set_head(head_display, selection.goal);
+                    });
+                });
+            });
+        }
+        
+        // Clear the operator after successful find
+        self.clear_operator(window, cx);
+    }
 }

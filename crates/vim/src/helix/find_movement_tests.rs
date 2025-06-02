@@ -17,10 +17,11 @@ mod test {
         
         cx.set_state("hello ˇworld testing", Mode::HelixNormal);
         
-        // f + char should create selection to target character
+        // f + char should create selection from cursor to target character (inclusive)
         cx.simulate_keystrokes("f t");
         
-        cx.assert_state("hello world «tesˇ»ting", Mode::HelixNormal);
+        // Should select from current position (space after "hello") to 't' in "testing"
+        cx.assert_state("hello «world tˇ»esting", Mode::HelixNormal);
     }
 
     #[gpui::test]
@@ -33,7 +34,8 @@ mod test {
         // t + char should create selection up to (but not including) target
         cx.simulate_keystrokes("t t");
         
-        cx.assert_state("hello world «tesˇ»ting", Mode::HelixNormal);
+        // Should select from current position to just before 't' in "testing"
+        cx.assert_state("hello «world ˇ»testing", Mode::HelixNormal);
     }
 
     #[gpui::test]
@@ -46,7 +48,8 @@ mod test {
         // F + char should create selection backward to target
         cx.simulate_keystrokes("shift-f w");
         
-        cx.assert_state("hello «ˇworld tesˇ»ting", Mode::HelixNormal);
+        // Should select from current position back to 'w' in "world"
+        cx.assert_state("hello «wˇorld tes»ting", Mode::HelixNormal);
     }
 
     #[gpui::test]
@@ -59,7 +62,8 @@ mod test {
         // T + char should create selection backward up to (but not including) target
         cx.simulate_keystrokes("shift-t w");
         
-        cx.assert_state("hello w«ˇorld tesˇ»ting", Mode::HelixNormal);
+        // Should select from current position back to just after 'w' in "world"
+        cx.assert_state("hello w«oˇrld tes»ting", Mode::HelixNormal);
     }
 
     #[gpui::test]
@@ -92,15 +96,17 @@ mod test {
         
         cx.set_state("hello ˇworld wonderful", Mode::HelixNormal);
         
-        // f + char should find first occurrence
+        // f + char should find first occurrence from current position
         cx.simulate_keystrokes("f o");
         
-        cx.assert_state("hello w«oˇ»rld wonderful", Mode::HelixNormal);
+        // Should select from current position to first 'o' in "world"
+        cx.assert_state("hello «woˇ»rld wonderful", Mode::HelixNormal);
         
-        // Subsequent find should go to next occurrence
+        // Subsequent find should go to next occurrence from current position
         cx.simulate_keystrokes("f o");
         
-        cx.assert_state("hello wo«rld w»onderful", Mode::HelixNormal);
+        // Should select from current position to next 'o' in "wonderful"
+        cx.assert_state("hello wo«rld wˇ»onderful", Mode::HelixNormal);
     }
 
     #[gpui::test]

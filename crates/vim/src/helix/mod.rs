@@ -2,6 +2,9 @@ pub mod selections;
 pub mod movement;
 pub mod mode;
 pub mod core;
+pub mod word_movement_tests;
+pub mod debug_harness;
+pub mod verification;
 
 #[cfg(test)]
 mod test;
@@ -16,9 +19,6 @@ mod selection_test;
 mod fix_test;
 
 #[cfg(test)]
-mod word_movement_tests;
-
-#[cfg(test)]
 mod selection_operation_tests;
 
 #[cfg(test)]
@@ -26,7 +26,6 @@ mod find_movement_tests;
 
 #[cfg(test)]
 mod core_tests;
-mod debug_harness;
 mod boundary_debug;
 
 use editor::{Editor, scroll::Autoscroll};

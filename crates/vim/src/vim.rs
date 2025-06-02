@@ -1600,7 +1600,7 @@ impl Vim {
                     smartcase: VimSettings::get_global(cx).use_smartcase_find,
                 };
                 Vim::globals(cx).last_find = Some(find.clone());
-                self.helix_word_move_cursor(find, window, cx)
+                self.helix_find_cursor(find, window, cx)
             }
             Some(Operator::HelixFindBackward { after }) => {
                 let find = Motion::FindBackward {
@@ -1614,7 +1614,7 @@ impl Vim {
                     smartcase: VimSettings::get_global(cx).use_smartcase_find,
                 };
                 Vim::globals(cx).last_find = Some(find.clone());
-                self.helix_word_move_cursor(find, window, cx)
+                self.helix_find_cursor(find, window, cx)
             }
             Some(Operator::Sneak { first_char }) => {
                 if let Some(first_char) = first_char {

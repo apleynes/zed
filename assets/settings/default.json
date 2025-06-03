@@ -1530,7 +1530,18 @@
       }
     },
     "Plain Text": {
-      "allow_rewrap": "anywhere"
+      "allow_rewrap": "anywhere",
+      "brackets": [
+        { "start": "(", "end": ")", "close": true, "newline": false },
+        { "start": "[", "end": "]", "close": true, "newline": false },
+        { "start": "{", "end": "}", "close": true, "newline": true },
+        { "start": "<", "end": ">", "close": true, "newline": false },
+        { "start": "\"", "end": "\"", "close": false, "newline": false },
+        { "start": "'", "end": "'", "close": false, "newline": false },
+        { "start": "«", "end": "»", "close": true, "newline": false },
+        { "start": "「", "end": "」", "close": true, "newline": false },
+        { "start": "（", "end": "）", "close": true, "newline": false }
+      ]
     },
     "Ruby": {
       "language_servers": ["solargraph", "!ruby-lsp", "!rubocop", "..."]

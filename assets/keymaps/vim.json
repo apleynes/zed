@@ -542,6 +542,10 @@
       ")": "helix::RotateSelectionsForward",
       "alt-(": "helix::RotateSelectionContentsBackward",
       "alt-)": "helix::RotateSelectionContentsForward",
+      "s": "regex_selection::SelectRegex",
+      "shift-s": "regex_selection::SplitSelectionOnRegex",      
+      "shift-k": "regex_selection::KeepSelections",
+      "alt-shift-k": "regex_selection::RemoveSelections",
       
       // Actions on selections
       "d": "vim::HelixDelete",

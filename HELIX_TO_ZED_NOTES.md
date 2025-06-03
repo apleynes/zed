@@ -595,7 +595,7 @@ Successfully implemented bracket matching (`m m`) functionality with comprehensi
   - Cursor on opening bracket → jump to closing bracket
   - Cursor on closing bracket → jump to opening bracket  
   - Cursor inside brackets → jump to closing bracket (Helix default)
-- **Comprehensive test coverage**: 11 tests covering all scenarios including nested brackets and tutor examples
+- **Comprehensive test coverage**: 11 tests covering all scenarios including nested brackets
 - **Mode preservation**: Maintains `HelixNormal` mode throughout operation
 
 **Test Coverage:**
@@ -650,3 +650,138 @@ After character input: HelixNormal       ✅
 - **Architecture**: ✅ Hybrid approach validated - can use vim operators with Helix modes
 
 This discovery fundamentally changes our implementation approach from "avoid vim operators" to "extend and reuse vim operators" while maintaining Helix behavior.
+
+## 🚧 CURRENT WORK: MATCH MODE SURROUND OPERATIONS IMPLEMENTATION
+
+**STATUS**: In progress - Keystroke interception system working, but surround operations have implementation bugs
+
+### ✅ Successfully Implemented
+
+#### 1. ✅ Bracket Matching (`m m`)
+- **Status**: Fully working with comprehensive test coverage
+- **Implementation**: Uses Zed's existing bracket matching infrastructure
+- **Test Coverage**: 10+ tests covering all scenarios including nested brackets
+- **Mode Preservation**: Correctly maintains HelixNormal mode
+
+#### 2. ✅ Text Object Operations (`m a`, `m i`)
+- **Status**: Working for single operations using keystroke interception system
+- **Implementation**: Custom keystroke interception in `vim.rs` observe_keystrokes method
+- **Test Coverage**: Basic functionality verified
+- **Mode Preservation**: Correctly maintains HelixNormal mode
+
+#### 3. ✅ Keystroke Interception System
+- **Status**: Fully functional for character input after match mode operations
+- **Implementation**: Added state fields and interception logic in `vim.rs`:
+  - `match_mode_awaiting_text_object: Option<bool>`
+  - `match_mode_awaiting_surround_add: bool`
+  - `match_mode_awaiting_surround_delete: bool`
+  - `match_mode_awaiting_surround_replace_from: bool`
+  - `match_mode_awaiting_surround_replace_to: bool`
+  - `match_mode_skip_next_text_object_intercept: bool`
+
+### 🚧 Current Issues Being Debugged
+
+#### 1. ✅ Surround Add - FIXED
+- **Status**: ✅ Working correctly
+- **Issue**: Characters were being inserted at wrong positions
+- **Root Cause**: Edit positions not calculated correctly for selection ranges
+- **Solution**: Fixed edit position calculation using anchors and proper selection updating
+- **Test Status**: `test_match_mode_surround_add_simple` passing
+
+#### 2. 🚧 Surround Delete - IN PROGRESS
+- **Status**: ❌ Partially working - parentheses work, square brackets fail
+- **Issue**: Square bracket `[` character not being intercepted by keystroke system
+- **Current Problem**: `match_mode_skip_next_text_object_intercept` flag is being set to `true` and causing `[` character to be skipped
+
+**Debug Evidence**:
+```
+DEBUG: helix_surround_delete called
+DEBUG: Set match_mode_awaiting_surround_delete to true
+DEBUG: In surround delete interception block
+DEBUG: Skipping surround delete interception for this keystroke  ← PROBLEM HERE
+```
+
+**Root Cause Analysis**:
+- The `match_mode_skip_next_text_object_intercept` flag is being set to `true` in the surround delete action
+- This causes the `[` character to be skipped instead of intercepted
+- The flag is intended to skip the action keystroke (`d` in `m d`), not the character input (`[`)
+
+#### 3. ❌ Surround Replace - NOT STARTED
+- **Status**: Implementation exists but not tested
+- **Expected Issues**: Likely similar keystroke interception problems
+
+### 🔍 Immediate Next Steps
+
+#### 1. **Fix Surround Delete Keystroke Interception**
+- **Problem**: The `match_mode_skip_next_text_object_intercept` flag logic is incorrect
+- **Investigation Needed**: 
+  - Check why the flag is still `true` when `[` character is processed
+  - Verify flag is being cleared correctly after the action keystroke
+  - Ensure proper state management between operations
+
+#### 2. **Debug Flag State Management**
+- **Current Issue**: Flag state not being managed correctly between operations
+- **Action Required**: 
+  - Add more debug output to track flag state changes
+  - Verify flag is cleared at the right time
+  - Check if multiple operations in same test are interfering
+
+#### 3. **Test Surround Replace Operations**
+- **Status**: Implementation exists but needs testing
+- **Action Required**: Create comprehensive tests for `m r` operations
+
+#### 4. **Comprehensive Integration Testing**
+- **Status**: Individual operations work, but multi-operation workflows need testing
+- **Action Required**: Test complex workflows combining multiple match mode operations
+
+### 🛠️ Technical Implementation Details
+
+#### Keystroke Interception Flow
+```rust
+// In vim.rs observe_keystrokes method:
+1. Action triggered (e.g., `m d`) → sets awaiting_surround_delete = true, skip_flag = true
+2. Action keystroke (`d`) → skip_flag = true, so keystroke is skipped, flag cleared
+3. Character input (`[`) → skip_flag should be false, character should be intercepted
+```
+
+#### Current Problem
+The flag is not being cleared properly between steps 2 and 3, causing step 3 to be skipped.
+
+#### Files Being Modified
+- **`zed/crates/vim/src/vim.rs`**: Keystroke interception logic
+- **`zed/crates/vim/src/helix/match_mode.rs`**: Match mode action implementations
+- **`zed/crates/vim/src/helix/test.rs`**: Test implementations
+
+### 📋 Test Status Summary
+
+#### ✅ Working Tests
+- `test_match_mode_bracket_matching_comprehensive` - 7 test cases ✅
+- `test_match_mode_surround_add_simple` - Basic surround add ✅
+- `test_match_mode_text_object_around_simple` - Basic text object ✅
+
+#### 🚧 Failing Tests
+- `test_match_mode_surround_delete_simple` - Square brackets not working ❌
+- `test_match_mode_surround_delete_brackets_only` - Isolated test still failing ❌
+
+#### ❌ Not Yet Tested
+- Surround replace operations
+- Complex multi-operation workflows
+- All bracket types for surround operations
+
+### 🎯 Success Criteria for Completion
+
+1. **✅ All surround operations working**: Add, delete, replace for all bracket types
+2. **✅ All text object operations working**: Around and inside for all object types  
+3. **✅ Comprehensive test coverage**: All operations tested with multiple scenarios
+4. **✅ Mode preservation**: All operations maintain HelixNormal mode
+5. **✅ Integration with existing keymap**: All `m` prefix commands working correctly
+
+### 🔧 Debugging Strategy
+
+1. **Add more debug output** to track flag state changes precisely
+2. **Isolate the flag management issue** by testing single operations
+3. **Fix the flag clearing logic** to ensure proper state transitions
+4. **Verify all bracket types work** once core issue is resolved
+5. **Implement comprehensive integration tests** for complex workflows
+
+**Current Priority**: Fix the `match_mode_skip_next_text_object_intercept` flag management issue that's preventing square bracket surround delete operations from working.

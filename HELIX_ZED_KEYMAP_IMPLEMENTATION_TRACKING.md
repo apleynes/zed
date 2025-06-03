@@ -215,13 +215,34 @@ Accessed by typing `m` in [normal mode](#normal-mode).
 | Key              | Description                                     | Status | Notes |
 | -----            | -----------                                     | ------ | ----- |
 | `m`              | Goto matching bracket (**TS**)                  | ✅ | Full implementation using Zed's existing bracket matching with comprehensive tests and exact Helix behavior |
-| `s` `<char>`     | Surround current selection with `<char>`        | 🚧 | Partial - vim operators work with HelixNormal mode, but surround implementation needs fixing |
-| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | ❌ | Not implemented - can use vim operators with Helix mode support |
-| `d` `<char>`     | Delete surround character `<char>`              | 🚧 | Partial - vim operators work with HelixNormal mode, but surround implementation needs fixing |
-| `a` `<object>`   | Select around textobject                        | ❌ | Not implemented - can use vim operators with Helix mode support |
-| `i` `<object>`   | Select inside textobject                        | ❌ | Not implemented - can use vim operators with Helix mode support |
+| `s` `<char>`     | Surround current selection with `<char>`        | ✅ | Working with keystroke interception system - surround add functionality complete |
+| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | 🚧 | Implementation exists but not fully tested - likely has keystroke interception issues |
+| `d` `<char>`     | Delete surround character `<char>`              | 🚧 | Partially working - parentheses work, square brackets fail due to keystroke interception flag issue |
+| `a` `<object>`   | Select around textobject                        | ✅ | Working for single operations with keystroke interception system |
+| `i` `<object>`   | Select inside textobject                        | ✅ | Working for single operations with keystroke interception system |
 
-**🎉 MAJOR DISCOVERY**: Vim operators **DO NOT** force mode changes! Tests confirm that `vim.push_operator()` maintains `HelixNormal` mode throughout operations. The vim operator system has been successfully extended to support `Mode::HelixNormal | Mode::HelixSelect`, enabling reuse of existing vim infrastructure while maintaining Helix behavior.
+**🎯 CURRENT STATUS**: 
+- **✅ Bracket matching (`m m`)**: Fully working with comprehensive test coverage
+- **✅ Surround add (`m s`)**: Working correctly with keystroke interception system
+- **✅ Text objects (`m a`, `m i`)**: Working for single operations using keystroke interception system
+- **🚧 Surround delete (`m d`)**: Partially working - parentheses work, square brackets fail due to flag management issue
+- **🚧 Surround replace (`m r`)**: Implementation exists but not fully tested
+
+**🔧 CURRENT ISSUE**: 
+**Keystroke Interception Flag Management**: The `match_mode_skip_next_text_object_intercept` flag is not being cleared properly, causing square bracket `[` characters to be skipped instead of intercepted for surround delete operations. Parentheses work correctly, but square brackets and other characters fail.
+
+**🔍 IMMEDIATE NEXT STEPS**:
+1. **Fix flag state management** in keystroke interception system
+2. **Debug why square brackets are being skipped** while parentheses work
+3. **Test and fix surround replace operations**
+4. **Implement comprehensive integration tests** for complex workflows
+5. **Verify all bracket types work** for all surround operations
+
+**📋 TECHNICAL IMPLEMENTATION**:
+- **Architecture**: Custom keystroke interception system in `vim.rs`
+- **State Management**: Added multiple state fields for tracking operation context
+- **Mode Preservation**: All operations correctly maintain HelixNormal mode
+- **Integration**: Uses existing Zed infrastructure where possible (bracket matching, text objects)
 
 #### Window mode
 

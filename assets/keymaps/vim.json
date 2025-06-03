@@ -922,5 +922,51 @@
     "bindings": {
       "alt-l": "editor::AcceptEditPrediction"
     }
+  },
+  {
+    "context": "vim_mode == helix_normal && helix_awaiting_text_object",
+    "bindings": {
+      "(": ["helix_match_mode::SelectTextObjectChar", { "char": "(", "around": true }],
+      ")": ["helix_match_mode::SelectTextObjectChar", { "char": ")", "around": true }],
+      "[": ["helix_match_mode::SelectTextObjectChar", { "char": "[", "around": true }],
+      "]": ["helix_match_mode::SelectTextObjectChar", { "char": "]", "around": true }],
+      "{": ["helix_match_mode::SelectTextObjectChar", { "char": "{", "around": true }],
+      "}": ["helix_match_mode::SelectTextObjectChar", { "char": "}", "around": true }],
+      "<": ["helix_match_mode::SelectTextObjectChar", { "char": "<", "around": true }],
+      ">": ["helix_match_mode::SelectTextObjectChar", { "char": ">", "around": true }],
+      "\"": ["helix_match_mode::SelectTextObjectChar", { "char": "\"", "around": true }],
+      "'": ["helix_match_mode::SelectTextObjectChar", { "char": "'", "around": true }],
+      "`": ["helix_match_mode::SelectTextObjectChar", { "char": "`", "around": true }],
+      "w": ["helix_match_mode::SelectTextObjectChar", { "char": "w", "around": true }],
+      "W": ["helix_match_mode::SelectTextObjectChar", { "char": "W", "around": true }],
+      "s": ["helix_match_mode::SelectTextObjectChar", { "char": "s", "around": true }],
+      "p": ["helix_match_mode::SelectTextObjectChar", { "char": "p", "around": true }],
+      "escape": "helix_match_mode::CancelTextObject",
+      "ctrl-c": "helix_match_mode::CancelTextObject",
+      "ctrl-[": "helix_match_mode::CancelTextObject"
+    }
+  },
+  {
+    "context": "vim_mode == helix_normal && helix_awaiting_text_object_inside",
+    "bindings": {
+      "(": ["helix_match_mode::SelectTextObjectChar", { "char": "(", "around": false }],
+      ")": ["helix_match_mode::SelectTextObjectChar", { "char": ")", "around": false }],
+      "[": ["helix_match_mode::SelectTextObjectChar", { "char": "[", "around": false }],
+      "]": ["helix_match_mode::SelectTextObjectChar", { "char": "]", "around": false }],
+      "{": ["helix_match_mode::SelectTextObjectChar", { "char": "{", "around": false }],
+      "}": ["helix_match_mode::SelectTextObjectChar", { "char": "}", "around": false }],
+      "<": ["helix_match_mode::SelectTextObjectChar", { "char": "<", "around": false }],
+      ">": ["helix_match_mode::SelectTextObjectChar", { "char": ">", "around": false }],
+      "\"": ["helix_match_mode::SelectTextObjectChar", { "char": "\"", "around": false }],
+      "'": ["helix_match_mode::SelectTextObjectChar", { "char": "'", "around": false }],
+      "`": ["helix_match_mode::SelectTextObjectChar", { "char": "`", "around": false }],
+      "w": ["helix_match_mode::SelectTextObjectChar", { "char": "w", "around": false }],
+      "W": ["helix_match_mode::SelectTextObjectChar", { "char": "W", "around": false }],
+      "s": ["helix_match_mode::SelectTextObjectChar", { "char": "s", "around": false }],
+      "p": ["helix_match_mode::SelectTextObjectChar", { "char": "p", "around": false }],
+      "escape": "helix_match_mode::CancelTextObject",
+      "ctrl-c": "helix_match_mode::CancelTextObject",
+      "ctrl-[": "helix_match_mode::CancelTextObject"
+    }
   }
 ]

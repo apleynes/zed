@@ -204,7 +204,7 @@ fn apply_regex_selection(
             }
             
             RegexOperation::Keep => {
-                // Keep only selections that match the regex (like Helix keep_or_remove_matches with remove=false)
+                // Keep only selections that contain the regex pattern (partial match within selection)
                 for selection in selections {
                     let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
                     if regex.is_match(&selection_text) {
@@ -214,7 +214,7 @@ fn apply_regex_selection(
             }
             
             RegexOperation::Remove => {
-                // Remove selections that match the regex (like Helix keep_or_remove_matches with remove=true)
+                // Remove selections that contain the regex pattern (partial match within selection)
                 for selection in selections {
                     let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
                     if !regex.is_match(&selection_text) {
@@ -427,7 +427,7 @@ impl Render for InteractiveRegexPrompt {
             .right_4()
             .child(
                 v_flex()
-                    .key_context("InteractiveRegexPrompt")
+                    .key_context("RegexPrompt")
                     .on_action(cx.listener(Self::confirm))
                     .on_action(cx.listener(Self::cancel))
                     .track_focus(&focus_handle)

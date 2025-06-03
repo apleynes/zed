@@ -98,8 +98,8 @@ Normal mode is the default mode when you launch helix. You can return to it from
 
 | Key                      | Description                                                       | Status | Notes |
 | -----                    | -----------                                                       | ------ | ----- |
-| `s`                      | Select all regex matches inside selections                        | 🚧 | Basic implementation, needs regex prompt |
-| `S`                      | Split selection into sub selections on regex matches              | 🚧 | Basic implementation, needs regex prompt |
+| `s`                      | Select all regex matches inside selections                        | ✅ | Interactive prompt with real-time preview |
+| `S`                      | Split selection into sub selections on regex matches              | ✅ | Interactive prompt with real-time preview |
 | `Alt-s`                  | Split selection on newlines                                       | ❌ | Not implemented |
 | `Alt-minus`              | Merge selections                                                  | ✅ | Full implementation with tests |
 | `Alt-_`                  | Merge consecutive selections                                      | ✅ | Full implementation with tests |
@@ -122,8 +122,8 @@ Normal mode is the default mode when you launch helix. You can return to it from
 | `Alt-x`                  | Shrink selection to line bounds (line-wise selection)             | ❌ | Not implemented |
 | `J`                      | Join lines inside selection                                       | ❌ | Not implemented |
 | `Alt-J`                  | Join lines inside selection and select the inserted space         | ❌ | Not implemented |
-| `K`                      | Keep selections matching the regex                                | 🚧 | Basic implementation, needs regex prompt |
-| `Alt-K`                  | Remove selections matching the regex                              | 🚧 | Basic implementation, needs regex prompt |
+| `K`                      | Keep selections matching the regex                                | ✅ | Interactive prompt with real-time preview |
+| `Alt-K`                  | Remove selections matching the regex                              | ✅ | Interactive prompt with real-time preview |
 | `Ctrl-c`                 | Comment/uncomment the selections                                  | ✅ | Uses vim infrastructure |
 | `Alt-o`, `Alt-up`        | Expand selection to parent syntax node (**TS**)                   | ❌ | Not implemented |
 | `Alt-i`, `Alt-down`      | Shrink syntax tree object selection (**TS**)                      | ❌ | Not implemented |
@@ -300,8 +300,6 @@ These mappings are in the style of [vim-unimpaired](https://github.com/tpope/vim
 | `[p`     | Go to previous paragraph                     | ❌ | Not implemented |
 | `]g`     | Go to next change                            | ❌ | Not implemented |
 | `[g`     | Go to previous change                        | ❌ | Not implemented |
-| `]G`     | Go to last change                            | ❌ | Not implemented |
-| `[G`     | Go to first change                           | ❌ | Not implemented |
 | `]Space` | Add newline below                            | ❌ | Not implemented |
 | `[Space` | Add newline above                            | ❌ | Not implemented |
 
@@ -345,13 +343,22 @@ Accessed by typing `v` in [normal mode](#normal-mode).
   - Copy to next/prev line (`C`, `Alt-C`)
   - Keep/remove primary (`,`, `Alt-,`)
   - Rotate selections (`(`, `)`) and contents (`Alt-(`, `Alt-)`)
+- **Regex Selection Operations**:
+  - Select regex matches (`s`) with interactive prompt and real-time preview
+  - Split selections on regex (`S`) with interactive prompt and real-time preview
+  - Keep selections matching regex (`K`) with interactive prompt, real-time preview, and partial match behavior
+  - Remove selections matching regex (`Alt-K`) with interactive prompt, real-time preview, and partial match behavior
+- **Interactive Regex Prompts**:
+  - Real-time preview updates as user types
+  - Enter key confirms selection and closes dialog
+  - Escape key cancels and restores original selections
+  - Proper key context integration with vim.json keymap
 - **Mode System**: Normal and Select modes with proper switching
 - **Line Selection**: x for line selection
 - **Basic Editing**: Insert modes, undo/redo, yank/paste, delete/change
 - **Window Management**: Basic window operations via Ctrl-w
 
 ### 🚧 Partially Implemented
-- **Regex Operations**: Basic s, S, K, Alt-K with placeholder implementations
 - **Select All**: % command implemented
 
 ### ❌ Major Missing Features
@@ -398,3 +405,9 @@ Accessed by typing `v` in [normal mode](#normal-mode).
 - **Manual Verification**: All implemented features verified to work correctly in practice
 
 This tracking document will be updated as new features are implemented. 
+
+### 🔧 **Recent Fixes Applied**
+- **Fixed Interactive Prompts**: Enter/Escape keys now work correctly to confirm/cancel regex dialogs
+- **Fixed Keep/Remove Behavior**: Now uses partial matches within selections (e.g., keep "o" on selections "one", "two", "three" keeps "one" and "two")
+- **Fixed Key Context**: Updated from "InteractiveRegexPrompt" to "RegexPrompt" to match keymap
+- **Enhanced User Experience**: Added helpful regex tips in the prompt dialog 

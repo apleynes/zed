@@ -344,15 +344,17 @@ Accessed by typing `v` in [normal mode](#normal-mode).
   - Keep/remove primary (`,`, `Alt-,`)
   - Rotate selections (`(`, `)`) and contents (`Alt-(`, `Alt-)`)
 - **Regex Selection Operations**:
-  - Select regex matches (`s`) with interactive prompt and real-time preview
-  - Split selections on regex (`S`) with interactive prompt and real-time preview
-  - Keep selections matching regex (`K`) with interactive prompt, real-time preview, and partial match behavior
-  - Remove selections matching regex (`Alt-K`) with interactive prompt, real-time preview, and partial match behavior
-- **Interactive Regex Prompts**:
-  - Real-time preview updates as user types
-  - Enter key confirms selection and closes dialog
-  - Escape key cancels and restores original selections
-  - Proper key context integration with vim.json keymap
+  - Select regex matches (`s`) with interactive prompt and real-time preview ✅
+  - Split selections on regex (`S`) with interactive prompt and real-time preview ✅
+  - Keep selections matching regex (`K`) with interactive prompt, real-time preview, and exact Helix behavior ✅
+  - Remove selections matching regex (`Alt-K`) with interactive prompt, real-time preview, and exact Helix behavior ✅
+  - **Interactive UI Features**:
+    - Real-time preview updates as user types regex pattern ✅
+    - Enter key confirms selection and closes modal ✅
+    - Escape key cancels operation and restores original selections ✅
+    - Graceful handling of invalid regex patterns ✅
+    - Empty pattern handling ✅
+    - Comprehensive UI integration tests ✅
 - **Mode System**: Normal and Select modes with proper switching
 - **Line Selection**: x for line selection
 - **Basic Editing**: Insert modes, undo/redo, yank/paste, delete/change

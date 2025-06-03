@@ -204,7 +204,7 @@ fn apply_regex_selection(
             }
             
             RegexOperation::Keep => {
-                // Keep only selections that contain the regex pattern (partial match within selection)
+                // Keep only selections that match the regex anywhere within the selection (like Helix keep_or_remove_matches)
                 for selection in selections {
                     let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
                     if regex.is_match(&selection_text) {
@@ -214,7 +214,7 @@ fn apply_regex_selection(
             }
             
             RegexOperation::Remove => {
-                // Remove selections that contain the regex pattern (partial match within selection)
+                // Remove selections that match the regex anywhere within the selection (like Helix keep_or_remove_matches)
                 for selection in selections {
                     let selection_text = buffer.text_for_range(selection.range()).collect::<String>();
                     if !regex.is_match(&selection_text) {

@@ -14,7 +14,6 @@ mod mode_indicator;
 mod motion;
 mod normal;
 mod object;
-mod regex_prompt;
 mod replace;
 mod rewrap;
 mod state;

@@ -4,7 +4,7 @@ use crate::{
         KeepPrimarySelection, RemovePrimarySelection, TrimSelections, AlignSelections,
         CopySelectionOnNextLine, CopySelectionOnPrevLine, RotateSelectionsForward,
         RotateSelectionsBackward, RotateSelectionContentsForward, RotateSelectionContentsBackward,
-        SplitSelectionOnRegex,
+        regex_selection::SplitSelectionOnRegex,
     },
     test::VimTestContext,
     Mode,
@@ -502,7 +502,7 @@ async fn test_rotate_selections_reset_primary_index_after_new_selections(cx: &mu
 
     // Use the split selection on regex functionality (S command in Helix)
     // This should split the line selection on spaces to create three selections again
-    cx.dispatch_action(crate::helix::SplitSelectionOnRegex);
+    cx.dispatch_action(crate::helix::regex_selection::SplitSelectionOnRegex);
     // The split action should automatically create the three word selections and reset primary index
     // We expect the split to work correctly and create three selections
     cx.assert_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);

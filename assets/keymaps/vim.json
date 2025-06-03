@@ -466,8 +466,8 @@
       "space y": "editor::Copy",
       "space p": "editor::Paste",
       // Selection manipulation
-      "s": "helix::SelectRegex",
-      "shift-s": "helix::SplitSelectionOnRegex",
+      "s": "regex_selection::SelectRegex",
+      "shift-s": "regex_selection::SplitSelectionOnRegex",
       "alt-minus": "helix::MergeSelections",
       "alt-_": "helix::MergeConsecutiveSelections",
       "&": "helix::AlignSelections",
@@ -482,8 +482,8 @@
       ")": "helix::RotateSelectionsForward",
       "alt-(": "helix::RotateSelectionContentsBackward",
       "alt-)": "helix::RotateSelectionContentsForward",
-      "shift-k": "helix::KeepSelections",
-      "alt-k": "helix::RemoveSelections",
+      "shift-k": "regex_selection::KeepSelections",
+      "alt-k": "regex_selection::RemoveSelections",
       "%": "helix::SelectAll",
       // Match mode
       "m m": "helix::MatchBrackets",
@@ -558,9 +558,9 @@
   {
     "context": "RegexPrompt",
     "bindings": {
-      "enter": "regex_prompt::Confirm",
-      "escape": "regex_prompt::Dismiss",
-      "ctrl-c": "regex_prompt::Dismiss"
+      "enter": "regex_selection::ConfirmRegexSelection",
+      "escape": "regex_selection::CancelRegexSelection",
+      "ctrl-c": "regex_selection::CancelRegexSelection"
     }
   },
   {

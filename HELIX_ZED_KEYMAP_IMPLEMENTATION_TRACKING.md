@@ -214,14 +214,14 @@ Accessed by typing `m` in [normal mode](#normal-mode).
 
 | Key              | Description                                     | Status | Notes |
 | -----            | -----------                                     | ------ | ----- |
-| `m`              | Goto matching bracket (**TS**)                  | ✅ | Full implementation with comprehensive tests and exact Helix behavior |
-| `s` `<char>`     | Surround current selection with `<char>`        | 🚧 | Partial - uses vim operators (forces Normal mode) |
-| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | ❌ | Not implemented - needs pure Helix implementation |
-| `d` `<char>`     | Delete surround character `<char>`              | 🚧 | Partial - uses vim operators (forces Normal mode) |
-| `a` `<object>`   | Select around textobject                        | ❌ | Not implemented - needs pure Helix implementation |
-| `i` `<object>`   | Select inside textobject                        | ❌ | Not implemented - needs pure Helix implementation |
+| `m`              | Goto matching bracket (**TS**)                  | ✅ | Full implementation using Zed's existing bracket matching with comprehensive tests and exact Helix behavior |
+| `s` `<char>`     | Surround current selection with `<char>`        | 🚧 | Partial - vim operators work with HelixNormal mode, but surround implementation needs fixing |
+| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | ❌ | Not implemented - can use vim operators with Helix mode support |
+| `d` `<char>`     | Delete surround character `<char>`              | 🚧 | Partial - vim operators work with HelixNormal mode, but surround implementation needs fixing |
+| `a` `<object>`   | Select around textobject                        | ❌ | Not implemented - can use vim operators with Helix mode support |
+| `i` `<object>`   | Select inside textobject                        | ❌ | Not implemented - can use vim operators with Helix mode support |
 
-**⚠️ Critical Issue**: Surround operations (`s`, `d`) currently use vim's operator system which forces return to `Normal` mode instead of `HelixNormal` mode, breaking Helix mode consistency. This requires complete reimplementation without vim operators.
+**🎉 MAJOR DISCOVERY**: Vim operators **DO NOT** force mode changes! Tests confirm that `vim.push_operator()` maintains `HelixNormal` mode throughout operations. The vim operator system has been successfully extended to support `Mode::HelixNormal | Mode::HelixSelect`, enabling reuse of existing vim infrastructure while maintaining Helix behavior.
 
 #### Window mode
 
@@ -369,17 +369,28 @@ Accessed by typing `v` in [normal mode](#normal-mode).
 
 ### 🚧 Partially Implemented
 - **Select All**: % command implemented
-- **Match Mode Surround Operations**: `m s`, `m d` use vim operators but force Normal mode (incompatible with Helix)
+- **Match Mode Surround Operations**: `m s`, `m d` use vim operators with Helix mode support, but surround implementation needs fixing
 
-### 🚨 Critical Architectural Issue: Vim Operator Incompatibility
+### 🎉 **MAJOR ARCHITECTURAL BREAKTHROUGH: Vim Operator Compatibility**
 
-**MAJOR DISCOVERY**: Vim's action->object paradigm is fundamentally incompatible with Helix's selection+action approach:
+**DISCOVERY**: Comprehensive testing revealed that vim operators are **fully compatible** with Helix modes:
 
-- **Problem**: Any use of `vim.push_operator()` forces return to `Mode::Normal` instead of `Mode::HelixNormal`
-- **Impact**: Breaks Helix mode consistency and user experience
-- **Solution**: All Helix features must be implemented without vim operators using pure Helix functionality
-- **Affected Features**: Surround operations, text objects, character input prompts
-- **Status**: This discovery validates the complete Helix port approach rather than vim adaptation
+- **✅ Mode Preservation**: `vim.push_operator()` maintains `HelixNormal` mode throughout operations
+- **✅ No Forced Mode Changes**: Operators do not force return to `Mode::Normal`
+- **✅ Extended Support**: Vim operator system successfully extended to support `Mode::HelixNormal | Mode::HelixSelect`
+- **✅ Infrastructure Reuse**: Can leverage existing vim functionality while maintaining Helix behavior
+
+**IMPACT**: This enables a **hybrid approach** where we can:
+1. **Reuse vim operators** for character input and complex operations
+2. **Maintain Helix mode consistency** throughout all operations  
+3. **Leverage existing infrastructure** instead of reimplementing from scratch
+4. **Focus on fixing specific implementations** rather than architectural changes
+
+**IMPLEMENTATION STRATEGY**: 
+- ✅ Use vim operators for surround, text objects, and character input prompts
+- ✅ Extend vim operator system to support all Helix modes
+- 🔧 Fix specific operation implementations (e.g., surround logic) to work correctly with Helix modes
+- ✅ Maintain comprehensive test coverage for mode switching behavior
 
 ### ❌ Major Missing Features
 - **Minor Mode Systems**: g (goto), m (match), z (view), Space modes

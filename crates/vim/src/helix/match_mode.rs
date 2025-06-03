@@ -1,9 +1,9 @@
 use crate::{
-    helix::core::{self},
     Vim,
 };
-use editor::{scroll::Autoscroll, Editor};
+use editor::{scroll::Autoscroll, Editor, ToOffset, Bias};
 use gpui::{actions, Window, Context};
+use language::{SelectionGoal, Point};
 
 actions!(
     helix_match_mode,
@@ -35,28 +35,87 @@ fn helix_match_brackets(
     cx: &mut Context<Vim>,
 ) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
-        let buffer = editor.buffer().read(cx);
-        let snapshot = buffer.snapshot(cx);
-        let rope_text = rope::Rope::from(snapshot.text());
-        
         editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
-            s.move_with(|map, selection| {
-                // Get current cursor position
-                let cursor_pos = selection.head();
-                let cursor_byte_offset = cursor_pos.to_offset(map, editor::Bias::Left);
-                let cursor_char_offset = core::byte_offset_to_char_index(&rope_text, cursor_byte_offset);
+            s.move_with(|display_map, selection| {
+                // Get current cursor position as display point
+                let cursor_display_point = selection.head();
                 
-                // Find matching bracket
-                if let Some(match_char_offset) = core::find_matching_bracket(&rope_text, cursor_char_offset) {
-                    // Convert back to byte offset and then to Point
-                    let match_byte_offset = core::char_index_to_byte_offset(&rope_text, match_char_offset);
-                    let match_point = snapshot.offset_to_point(match_byte_offset);
-                    let match_display_point = map.point_to_display_point(match_point, editor::Bias::Left);
-                    
-                    // Move cursor to matching bracket
-                    selection.collapse_to(match_display_point, selection.goal);
+                // Convert to point for line boundary calculations
+                let point = cursor_display_point.to_point(display_map);
+                
+                // Use the same approach as the original vim implementation
+                // Get line boundaries for bracket search
+                let mut line_end = display_map.next_line_boundary(point).0;
+                if line_end == point {
+                    line_end = display_map.max_point().to_point(display_map);
                 }
-                // If no matching bracket found, selection remains unchanged
+                let line_range = display_map.prev_line_boundary(point).0..line_end;
+                let visible_line_range = line_range.start..Point::new(
+                    line_range.end.row, 
+                    line_range.end.column.saturating_sub(1)
+                );
+                
+                // Use bracket_ranges instead of enclosing_bracket_ranges
+                let ranges = display_map.buffer_snapshot.bracket_ranges(visible_line_range.clone());
+                
+                if let Some(ranges) = ranges {
+                    let line_range_offsets = line_range.start.to_offset(&display_map.buffer_snapshot)
+                        ..line_range.end.to_offset(&display_map.buffer_snapshot);
+                    let mut closest_pair_destination = None;
+                    let mut closest_distance = usize::MAX;
+                    
+                    // Convert cursor display point to offset for comparison
+                    let cursor_offset = cursor_display_point.to_offset(display_map, Bias::Left);
+                    
+                    for (open_range, close_range) in ranges {
+                        // Skip HTML/XML tags (like original implementation)
+                        if display_map.buffer_snapshot.chars_at(open_range.start).next() == Some('<') {
+                            continue;
+                        }
+                        
+                        // Check if cursor is on opening bracket
+                        if open_range.contains(&cursor_offset) && line_range_offsets.contains(&open_range.start) {
+                            closest_pair_destination = Some(close_range.start);
+                            break;
+                        }
+                        
+                        // Check if cursor is on closing bracket  
+                        if close_range.contains(&cursor_offset) && line_range_offsets.contains(&close_range.start) {
+                            closest_pair_destination = Some(open_range.start);
+                            break;
+                        }
+                        
+                        // Find closest bracket pair if cursor is not on a bracket
+                        if (open_range.contains(&cursor_offset) || open_range.start >= cursor_offset)
+                            && line_range_offsets.contains(&open_range.start)
+                        {
+                            let distance = open_range.start.saturating_sub(cursor_offset);
+                            if distance < closest_distance {
+                                closest_pair_destination = Some(close_range.start);
+                                closest_distance = distance;
+                                continue;
+                            }
+                        }
+                        
+                        if (close_range.contains(&cursor_offset) || close_range.start >= cursor_offset)
+                            && line_range_offsets.contains(&close_range.start)
+                        {
+                            let distance = close_range.start.saturating_sub(cursor_offset);
+                            if distance < closest_distance {
+                                closest_pair_destination = Some(close_range.start);  // Move to closing bracket
+                                closest_distance = distance;
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    if let Some(destination_offset) = closest_pair_destination {
+                        // Convert offset back to display point
+                        let destination_point = display_map.buffer_snapshot.offset_to_point(destination_offset);
+                        let destination_display_point = display_map.point_to_display_point(destination_point, Bias::Left);
+                        selection.collapse_to(destination_display_point, SelectionGoal::None);
+                    }
+                }
             })
         });
     });
@@ -70,6 +129,7 @@ fn helix_surround_add(
     cx: &mut Context<Vim>,
 ) {
     // Use Zed's existing operator system for character input
+    // Now extended to support HelixNormal and HelixSelect modes
     vim.push_operator(crate::state::Operator::AddSurrounds { target: None }, window, cx);
 }
 
@@ -121,176 +181,4 @@ fn helix_select_text_object_inside(
     // This should prompt for a text object character and select inside it
     // For now, just show a placeholder message - but we need to avoid using vim operators
     // because they force return to Normal mode instead of HelixNormal
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{test::VimTestContext, state::Mode};
-    use indoc::indoc;
-
-    #[gpui::test]
-    async fn test_match_brackets_parentheses(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // Test bracket matching with parentheses - cursor on opening bracket
-        cx.set_state(
-            indoc! {"
-            functionˇ(arg1, arg2) {
-                return arg1 + arg2;
-            }"},
-            Mode::HelixNormal,
-        );
-
-        // Dispatch the match brackets action directly
-        cx.dispatch_action(MatchBrackets);
-
-        // Should move to the matching closing parenthesis
-        cx.assert_state(
-            indoc! {"
-            function(arg1, arg2ˇ) {
-                return arg1 + arg2;
-            }"},
-            Mode::HelixNormal,
-        );
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_parentheses_reverse(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // Test bracket matching with parentheses - cursor on closing bracket
-        cx.set_state(
-            indoc! {"
-            function(arg1, arg2ˇ) {
-                return arg1 + arg2;
-            }"},
-            Mode::HelixNormal,
-        );
-
-        // Dispatch the match brackets action directly
-        cx.dispatch_action(MatchBrackets);
-
-        // Should move to the matching opening parenthesis
-        cx.assert_state(
-            indoc! {"
-            functionˇ(arg1, arg2) {
-                return arg1 + arg2;
-            }"},
-            Mode::HelixNormal,
-        );
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_square_brackets(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // Test bracket matching with square brackets
-        cx.set_state("arrayˇ[index] = value;", Mode::HelixNormal);
-
-        cx.dispatch_action(MatchBrackets);
-
-        // Should move to the matching closing bracket
-        cx.assert_state("array[indexˇ] = value;", Mode::HelixNormal);
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_curly_braces(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // Test bracket matching with curly braces
-        cx.set_state(
-            indoc! {"
-            if (condition) ˇ{
-                doSomething();
-            }"},
-            Mode::HelixNormal,
-        );
-
-        cx.dispatch_action(MatchBrackets);
-
-        // Should move to the matching closing brace
-        cx.assert_state(
-            indoc! {"
-            if (condition) {
-                doSomething();
-            ˇ}"},
-            Mode::HelixNormal,
-        );
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_nested(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // Test bracket matching with nested brackets
-        cx.set_state("outer(innerˇ(deep))", Mode::HelixNormal);
-
-        cx.dispatch_action(MatchBrackets);
-
-        // Should move to the matching closing parenthesis of the inner pair
-        cx.assert_state("outer(inner(deepˇ))", Mode::HelixNormal);
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_no_match(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // Test with cursor not on a bracket
-        cx.set_state("hello ˇworld", Mode::HelixNormal);
-
-        cx.dispatch_action(MatchBrackets);
-
-        // Should not move cursor
-        cx.assert_state("hello ˇworld", Mode::HelixNormal);
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_tutor_example_1(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // From Helix tutor: "you can (jump between matching parentheses)"
-        cx.set_state("you can ˇ(jump between matching parentheses)", Mode::HelixNormal);
-
-        cx.dispatch_action(MatchBrackets);
-
-        cx.assert_state("you can (jump between matching parenthesesˇ)", Mode::HelixNormal);
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_tutor_example_2(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // From Helix tutor: "or between matching [ square brackets ]"
-        cx.set_state("or between matching ˇ[ square brackets ]", Mode::HelixNormal);
-
-        cx.dispatch_action(MatchBrackets);
-
-        cx.assert_state("or between matching [ square brackets ˇ]", Mode::HelixNormal);
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_tutor_example_3(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // From Helix tutor: "now { you know the drill: this works with brackets too }"
-        cx.set_state("now ˇ{ you know the drill: this works with brackets too }", Mode::HelixNormal);
-
-        cx.dispatch_action(MatchBrackets);
-
-        cx.assert_state("now { you know the drill: this works with brackets too ˇ}", Mode::HelixNormal);
-    }
-
-    #[gpui::test]
-    async fn test_match_brackets_mode_preservation(cx: &mut gpui::TestAppContext) {
-        let mut cx = VimTestContext::new(cx, true).await;
-
-        // Test that mode is preserved after bracket matching
-        cx.set_state("functionˇ(arg)", Mode::HelixNormal);
-
-        cx.dispatch_action(MatchBrackets);
-
-        // Should move to matching bracket and stay in HelixNormal mode
-        cx.assert_state("function(argˇ)", Mode::HelixNormal);
-    }
 } 

@@ -1675,14 +1675,14 @@ impl Vim {
                         self.clear_operator(window, cx);
                     }
                 }
-                Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
+                Mode::Visual | Mode::VisualLine | Mode::VisualBlock | Mode::HelixNormal | Mode::HelixSelect => {
                     self.add_surrounds(text, SurroundsType::Selection, window, cx);
                     self.clear_operator(window, cx);
                 }
                 _ => self.clear_operator(window, cx),
             },
             Some(Operator::ChangeSurrounds { target }) => match self.mode {
-                Mode::Normal => {
+                Mode::Normal | Mode::HelixNormal | Mode::HelixSelect => {
                     if let Some(target) = target {
                         self.change_surrounds(text, target, window, cx);
                         self.clear_operator(window, cx);
@@ -1691,7 +1691,7 @@ impl Vim {
                 _ => self.clear_operator(window, cx),
             },
             Some(Operator::DeleteSurrounds) => match self.mode {
-                Mode::Normal => {
+                Mode::Normal | Mode::HelixNormal | Mode::HelixSelect => {
                     self.delete_surrounds(text, window, cx);
                     self.clear_operator(window, cx);
                 }

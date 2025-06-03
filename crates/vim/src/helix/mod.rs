@@ -117,13 +117,8 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, helix_select_all);
     Vim::action(editor, cx, helix_yank);
     
-    // Match mode operations
-    Vim::action(editor, cx, helix_match_brackets);
-    Vim::action(editor, cx, helix_surround_add);
-    Vim::action(editor, cx, helix_surround_replace);
-    Vim::action(editor, cx, helix_surround_delete);
-    Vim::action(editor, cx, helix_text_object_around);
-    Vim::action(editor, cx, helix_text_object_inside);
+    // Note: Match mode operations are registered in match_mode::register()
+    // Removed duplicate registrations that were overriding the real implementations
 }
 
 // Pure selection manipulation functions that work directly with editor state
@@ -424,67 +419,8 @@ fn helix_copy_selection_on_prev_line(
     selections::copy_selection_on_line(vim, window, cx, false);
 }
 
-// Match mode operations - implemented as direct actions without persistent state
-// These will be expanded when match mode is fully implemented
-fn helix_match_brackets(
-    _vim: &mut Vim,
-    _: &MatchBrackets,
-    _window: &mut Window,
-    _cx: &mut Context<Vim>,
-) {
-    // TODO: Implement match brackets functionality
-    // This would jump to matching bracket pairs
-}
-
-fn helix_surround_add(
-    _vim: &mut Vim,
-    _: &SurroundAdd,
-    _window: &mut Window,
-    _cx: &mut Context<Vim>,
-) {
-    // TODO: Implement surround add functionality
-    // This would add surrounding characters around selections
-}
-
-fn helix_surround_replace(
-    _vim: &mut Vim,
-    _: &SurroundReplace,
-    _window: &mut Window,
-    _cx: &mut Context<Vim>,
-) {
-    // TODO: Implement surround replace functionality
-    // This would replace surrounding characters
-}
-
-fn helix_surround_delete(
-    _vim: &mut Vim,
-    _: &SurroundDelete,
-    _window: &mut Window,
-    _cx: &mut Context<Vim>,
-) {
-    // TODO: Implement surround delete functionality
-    // This would delete surrounding characters
-}
-
-fn helix_text_object_around(
-    _vim: &mut Vim,
-    _: &TextObjectAround,
-    _window: &mut Window,
-    _cx: &mut Context<Vim>,
-) {
-    // TODO: Implement text object around functionality
-    // This would select around text objects (e.g., ma( for around parentheses)
-}
-
-fn helix_text_object_inside(
-    _vim: &mut Vim,
-    _: &TextObjectInside,
-    _window: &mut Window,
-    _cx: &mut Context<Vim>,
-) {
-    // TODO: Implement text object inside functionality
-    // This would select inside text objects (e.g., mi( for inside parentheses)
-}
+// Note: Match mode functions are implemented in match_mode.rs
+// Removed stub functions that were overriding the real implementations
 
 fn helix_select_all(
     vim: &mut Vim,
@@ -493,10 +429,7 @@ fn helix_select_all(
     cx: &mut Context<Vim>,
 ) {
     vim.update_editor(window, cx, |_, editor, window, cx| {
-        // Reset primary index since we're creating new selections from scratch
-        selections::reset_primary_selection_index();
-        
-        editor.select_all(&editor::actions::SelectAll, window, cx);
+        editor.select_all(&editor::actions::SelectAll {}, window, cx);
     });
 }
 
@@ -506,66 +439,24 @@ fn helix_yank(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    // Helix-style yank that preserves mode and handles cursor-only selections
-    vim.update_editor(window, cx, |vim, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, window, cx| {
+        // Helix-style copy that doesn't change modes or affect cursor position
         let selections = editor.selections.all_adjusted(cx);
         let buffer = editor.buffer().read(cx).snapshot(cx);
         
-        // Check if all selections are cursor-only (empty ranges)
-        let all_cursor_only = selections.iter().all(|s| s.start == s.end);
-        
-        if all_cursor_only && !selections.is_empty() {
-            let mut new_ranges = Vec::new();
-            
-            for selection in &selections {
-                let cursor_offset = selection.start.to_offset(&buffer);
-                let buffer_len = buffer.len();
-                
-                // Select the character at the cursor position
-                if cursor_offset < buffer_len {
-                    // Select from cursor to next character
-                    let end_offset = std::cmp::min(cursor_offset + 1, buffer_len);
-                    new_ranges.push(cursor_offset..end_offset);
-                } else if cursor_offset > 0 {
-                    // If at end of buffer, select the previous character
-                    new_ranges.push((cursor_offset - 1)..cursor_offset);
-                }
-            }
-            
-            if !new_ranges.is_empty() {
-                editor.change_selections(None, window, cx, |s| {
-                    s.select_ranges(new_ranges);
-                });
-            }
+        // Collect text from all selections
+        let mut clipboard_text = Vec::new();
+        for selection in selections.iter() {
+            let text = buffer.text_for_range(selection.range()).collect::<String>();
+            clipboard_text.push(text);
         }
         
-        // Use helix-specific copy that doesn't change modes
-        helix_copy_selections(vim, editor, window, cx);
+        // Join with newlines for multi-selection copy
+        let final_text = clipboard_text.join("\n");
+        
+        // Copy to system clipboard
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(final_text));
     });
-}
-
-fn helix_copy_selections(
-    vim: &mut Vim,
-    editor: &mut Editor,
-    window: &mut Window,
-    cx: &mut Context<Editor>,
-) {
-    // Helix-style copy that doesn't change modes or affect cursor position
-    let selections = editor.selections.all_adjusted(cx);
-    let buffer = editor.buffer().read(cx).snapshot(cx);
-    
-    // Collect text from all selections
-    let mut clipboard_text = Vec::new();
-    for selection in selections.iter() {
-        let text = buffer.text_for_range(selection.range()).collect::<String>();
-        clipboard_text.push(text);
-    }
-    
-    // Join with newlines for multi-selection copy
-    let final_text = clipboard_text.join("\n");
-    
-    // Copy to system clipboard
-    cx.write_to_clipboard(gpui::ClipboardItem::new_string(final_text));
 }
 
 impl Vim {

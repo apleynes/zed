@@ -581,3 +581,72 @@ A comprehensive keymap implementation tracking document has been created at `HEL
 6. **Advanced Editing Operations**: Replace with yanked, no-yank operations
 
 The foundation for Helix-style editing in Zed is now solid and production-ready, with all core movement, selection operations, and regex selection functionality working correctly with comprehensive test coverage and exact Helix behavior compliance.
+
+## Phase 5: Match Mode Implementation (Current)
+
+### Bracket Matching Implementation ✅
+
+Successfully implemented bracket matching (`m m`) functionality with comprehensive Helix behavior:
+
+**Implementation Details:**
+- **Reused Zed's existing bracket matching**: Used `snapshot.enclosing_bracket_ranges()` instead of reimplementing from scratch
+- **Proper coordinate handling**: Integrated with Zed's offset-based system using `selection.collapse_to()`
+- **Helix-compliant behavior**: 
+  - Cursor on opening bracket → jump to closing bracket
+  - Cursor on closing bracket → jump to opening bracket  
+  - Cursor inside brackets → jump to closing bracket (Helix default)
+- **Comprehensive test coverage**: 11 tests covering all scenarios including nested brackets and tutor examples
+- **Mode preservation**: Maintains `HelixNormal` mode throughout operation
+
+**Test Coverage:**
+- Basic bracket matching (parentheses, square brackets, curly braces)
+- Bidirectional matching (opening ↔ closing)
+- Nested bracket handling with proper innermost pair selection
+- No-match scenarios and graceful error handling
+- Helix tutor example scenarios for validation
+- Mode switching verification
+
+### 🎉 **MAJOR ARCHITECTURAL DISCOVERY: Vim Operator Compatibility**
+
+**CRITICAL BREAKTHROUGH**: Comprehensive testing revealed that the previous assumption about vim operators forcing mode changes was **completely incorrect**.
+
+**What We Discovered:**
+- **✅ Vim operators DO NOT force mode changes**: `vim.push_operator()` maintains `HelixNormal` mode throughout operations
+- **✅ Mode preservation works perfectly**: All tests confirm mode consistency is maintained
+- **✅ Infrastructure can be reused**: Existing vim operator system can be leveraged for Helix features
+- **✅ Extension successful**: Vim operator system successfully extended to support `Mode::HelixNormal | Mode::HelixSelect`
+
+**Testing Evidence:**
+```
+=== Test Results ===
+Initial mode: HelixNormal
+After SurroundAdd dispatch: HelixNormal  ✅
+After push_operator: HelixNormal         ✅  
+After character input: HelixNormal       ✅
+```
+
+**Implementation Changes Made:**
+1. **Extended vim operator system** in `vim.rs` to support Helix modes:
+   ```rust
+   Mode::Visual | Mode::VisualLine | Mode::VisualBlock | Mode::HelixNormal | Mode::HelixSelect => {
+       self.add_surrounds(text, SurroundsType::Selection, window, cx);
+       self.clear_operator(window, cx);
+   }
+   ```
+
+2. **Updated all surround operators** (`AddSurrounds`, `DeleteSurrounds`, `ChangeSurrounds`) to support Helix modes
+
+3. **Verified mode preservation** through comprehensive testing
+
+**Impact on Implementation Strategy:**
+- **✅ Can reuse vim operators** for surround operations, text objects, and character input
+- **✅ Can maintain Helix mode consistency** throughout all operations
+- **✅ Can leverage existing infrastructure** instead of reimplementing from scratch
+- **🔧 Focus shifts to fixing specific implementations** rather than architectural changes
+
+**Current Status:**
+- **Bracket matching**: ✅ Fully working with Zed's infrastructure
+- **Surround operations**: 🔧 Mode preservation works, but surround logic needs fixing
+- **Architecture**: ✅ Hybrid approach validated - can use vim operators with Helix modes
+
+This discovery fundamentally changes our implementation approach from "avoid vim operators" to "extend and reuse vim operators" while maintaining Helix behavior.

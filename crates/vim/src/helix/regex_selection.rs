@@ -36,11 +36,13 @@ fn helix_select_regex(
     };
     
     let editor = vim.editor.clone();
+    let vim_entity = cx.entity().downgrade();
     
     // Create interactive regex prompt with real-time preview
     workspace.update(cx, |workspace, cx| {
         workspace.toggle_modal(window, cx, |window, cx| {
             InteractiveRegexPrompt::new(
+                vim_entity,
                 editor,
                 RegexOperation::Select,
                 "Select regex matches:".to_string(),
@@ -62,10 +64,12 @@ fn helix_split_selection_on_regex(
     };
     
     let editor = vim.editor.clone();
+    let vim_entity = cx.entity().downgrade();
     
     workspace.update(cx, |workspace, cx| {
         workspace.toggle_modal(window, cx, |window, cx| {
             InteractiveRegexPrompt::new(
+                vim_entity,
                 editor,
                 RegexOperation::Split,
                 "Split selections on regex:".to_string(),
@@ -87,10 +91,12 @@ fn helix_keep_selections(
     };
     
     let editor = vim.editor.clone();
+    let vim_entity = cx.entity().downgrade();
     
     workspace.update(cx, |workspace, cx| {
         workspace.toggle_modal(window, cx, |window, cx| {
             InteractiveRegexPrompt::new(
+                vim_entity,
                 editor,
                 RegexOperation::Keep,
                 "Keep selections matching regex:".to_string(),
@@ -112,10 +118,12 @@ fn helix_remove_selections(
     };
     
     let editor = vim.editor.clone();
+    let vim_entity = cx.entity().downgrade();
     
     workspace.update(cx, |workspace, cx| {
         workspace.toggle_modal(window, cx, |window, cx| {
             InteractiveRegexPrompt::new(
+                vim_entity,
                 editor,
                 RegexOperation::Remove,
                 "Remove selections matching regex:".to_string(),
@@ -135,6 +143,7 @@ enum RegexOperation {
 }
 
 fn apply_regex_selection(
+    vim: WeakEntity<Vim>,
     editor: WeakEntity<Editor>,
     pattern: &str,
     operation: RegexOperation,
@@ -181,23 +190,22 @@ fn apply_regex_selection(
                         continue;
                     }
                     
-                    let mut last_end = 0;
+                    let mut start = selection_start_offset;
                     
                     for mat in regex.find_iter(&selection_text) {
-                        // Add text before the match (including empty strings for leading matches)
-                        let start_offset = selection_start_offset + last_end;
-                        let end_offset = selection_start_offset + mat.start();
-                        let start_point = buffer.offset_to_point(start_offset);
-                        let end_point = buffer.offset_to_point(end_offset);
+                        // Add text before the match
+                        let end = selection_start_offset + mat.start();
+                        let start_point = buffer.offset_to_point(start);
+                        let end_point = buffer.offset_to_point(end);
                         new_ranges.push(start_point..end_point);
                         
-                        last_end = mat.end();
+                        start = selection_start_offset + mat.end();
                     }
                     
                     // Add remaining text after last match
-                    if last_end <= selection_text.len() {
-                        let start_offset = selection_start_offset + last_end;
-                        let start_point = buffer.offset_to_point(start_offset);
+                    let selection_end_offset = editor::ToOffset::to_offset(&selection.end, &buffer);
+                    if start < selection_end_offset {
+                        let start_point = buffer.offset_to_point(start);
                         new_ranges.push(start_point..selection.end);
                     }
                 }
@@ -233,10 +241,18 @@ fn apply_regex_selection(
             });
         }
     });
+    
+    // In Helix, ALL regex operations should return to normal mode
+    let result = vim.update(cx, |vim, cx| {
+        // Always switch to HelixNormal mode after regex operations (like Helix behavior)
+        vim.switch_mode(crate::Mode::HelixNormal, false, window, cx);
+    });
+    let _ = result;
 }
 
 // Interactive regex prompt with real-time preview using Zed's search infrastructure pattern
 pub struct InteractiveRegexPrompt {
+    vim: WeakEntity<Vim>,
     editor: WeakEntity<Editor>,
     operation: RegexOperation,
     prompt_message: String,
@@ -247,6 +263,7 @@ pub struct InteractiveRegexPrompt {
 
 impl InteractiveRegexPrompt {
     pub fn new(
+        vim: WeakEntity<Vim>,
         editor: WeakEntity<Editor>,
         operation: RegexOperation,
         prompt_message: String,
@@ -275,6 +292,7 @@ impl InteractiveRegexPrompt {
         });
         
         Self {
+            vim,
             editor,
             operation,
             prompt_message,
@@ -342,21 +360,22 @@ impl InteractiveRegexPrompt {
                             continue;
                         }
                         
-                        let mut last_end = 0;
+                        let mut start = selection_start_offset;
+                        
                         for mat in regex.find_iter(&selection_text) {
-                            // Add text before the match (including empty strings for leading matches)
-                            let start_offset = selection_start_offset + last_end;
-                            let end_offset = selection_start_offset + mat.start();
-                            let start_point = buffer.offset_to_point(start_offset);
-                            let end_point = buffer.offset_to_point(end_offset);
+                            // Add text before the match
+                            let end = selection_start_offset + mat.start();
+                            let start_point = buffer.offset_to_point(start);
+                            let end_point = buffer.offset_to_point(end);
                             new_ranges.push(start_point..end_point);
                             
-                            last_end = mat.end();
+                            start = selection_start_offset + mat.end();
                         }
                         
-                        if last_end <= selection_text.len() {
-                            let start_offset = selection_start_offset + last_end;
-                            let start_point = buffer.offset_to_point(start_offset);
+                        // Add remaining text after last match
+                        let selection_end_offset = editor::ToOffset::to_offset(&selection_range.end, &buffer);
+                        if start < selection_end_offset {
+                            let start_point = buffer.offset_to_point(start);
                             new_ranges.push(start_point..selection_range.end);
                         }
                     }
@@ -385,8 +404,14 @@ impl InteractiveRegexPrompt {
     
     fn confirm(&mut self, _: &ConfirmRegexSelection, window: &mut Window, cx: &mut Context<Self>) {
         let pattern = self.regex_editor.read(cx).text(cx);
+        
         if !pattern.trim().is_empty() {
-            apply_regex_selection(self.editor.clone(), &pattern, self.operation, window, cx);
+            apply_regex_selection(self.vim.clone(), self.editor.clone(), &pattern, self.operation, window, cx);
+        } else {
+            // Even with empty pattern, we should switch to HelixNormal mode (like Helix behavior)
+            let _ = self.vim.update(cx, |vim, cx| {
+                vim.switch_mode(crate::Mode::HelixNormal, false, window, cx);
+            });
         }
         cx.emit(gpui::DismissEvent);
     }

@@ -17,7 +17,8 @@ async fn test_collapse_selection_single(cx: &mut gpui::TestAppContext) {
 
     cx.set_state("hello «worldˇ»", Mode::HelixNormal);
     cx.dispatch_action(CollapseSelection);
-    cx.assert_state("hello worldˇ", Mode::HelixNormal);
+    // For forward selection "world", cursor should be at prev_grapheme_boundary(head) = 'd'
+    cx.assert_state("hello worlˇd", Mode::HelixNormal);
 }
 
 #[gpui::test]
@@ -26,7 +27,8 @@ async fn test_collapse_selection_multiple(cx: &mut gpui::TestAppContext) {
 
     cx.set_state("«oneˇ» and «twoˇ» and three", Mode::HelixNormal);
     cx.dispatch_action(CollapseSelection);
-    cx.assert_state("oneˇ and twoˇ and three", Mode::HelixNormal);
+    // For forward selections, cursor should be at prev_grapheme_boundary(head)
+    cx.assert_state("onˇe and twˇo and three", Mode::HelixNormal);
 }
 
 #[gpui::test]
@@ -502,7 +504,9 @@ async fn test_rotate_selections_reset_primary_index_after_new_selections(cx: &mu
 
     // Use the split selection on regex functionality (S command in Helix)
     // This should split the line selection on spaces to create three selections again
-    cx.dispatch_action(crate::helix::regex_selection::SplitSelectionOnRegex);
+    cx.simulate_keystrokes("shift-s");  // Open split selection modal
+    cx.simulate_input(" ");             // Split on spaces
+    cx.simulate_keystrokes("enter");    // Confirm the operation
     // The split action should automatically create the three word selections and reset primary index
     // We expect the split to work correctly and create three selections
     cx.assert_state("«oneˇ» «twoˇ» «threeˇ»", Mode::HelixNormal);

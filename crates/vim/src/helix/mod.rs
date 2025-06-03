@@ -155,16 +155,8 @@ fn helix_collapse_selection(
                     let helix_range = core::Range::new(anchor_offset, head_offset);
                     let cursor_char_index = helix_range.cursor(&rope_text);
                     
-                    // CRITICAL FIX: Apply +1 adjustment because Zed positions cursor at head-1
-                    // This is the same issue we had with find character movements
-                    let adjusted_cursor_char_index = if cursor_char_index < rope_text.chars().count() {
-                        cursor_char_index + 1
-                    } else {
-                        cursor_char_index
-                    };
-                    
-                    // Convert back to Zed coordinates
-                    let cursor_byte_offset = core::char_index_to_byte_offset(&rope_text, adjusted_cursor_char_index);
+                    // Convert back to Zed coordinates (no adjustment needed)
+                    let cursor_byte_offset = core::char_index_to_byte_offset(&rope_text, cursor_char_index);
                     let cursor_point = snapshot.offset_to_point(cursor_byte_offset);
                     let cursor_display = editor::DisplayPoint::new(editor::display_map::DisplayRow(cursor_point.row), cursor_point.column);
                     
@@ -303,16 +295,21 @@ fn helix_remove_primary_selection(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
+    eprintln!("helix_remove_primary_selection called");
     vim.update_editor(window, cx, |_, editor, window, cx| {
         let selections = editor.selections.all_adjusted(cx);
+        eprintln!("Remove primary: selections.len() = {}", selections.len());
         if selections.len() <= 1 {
+            eprintln!("Remove primary: Early return - only {} selections", selections.len());
             return; // Can't remove the only selection
         }
         
         // Get the current primary index from our tracking and validate it
         let primary_index = selections::get_primary_selection_index();
+        eprintln!("Remove primary: primary_index = {}", primary_index);
         let primary_index = if primary_index >= selections.len() {
             // Primary index is out of bounds, reset to 0 and use 0
+            eprintln!("Remove primary: primary_index out of bounds, resetting to 0");
             selections::set_primary_selection_index(0);
             0
         } else {
@@ -326,6 +323,8 @@ fn helix_remove_primary_selection(
             .filter(|(i, _)| *i != primary_index)
             .map(|(_, s)| s.range())
             .collect();
+        
+        eprintln!("Remove primary: remaining.len() = {}", remaining.len());
         
         // Update the primary index for the remaining selections
         if primary_index > 0 && primary_index >= remaining.len() {
@@ -342,6 +341,10 @@ fn helix_remove_primary_selection(
         editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
             s.select_ranges(remaining);
         });
+        
+        // Debug: Check if the change actually took effect
+        let new_selections = editor.selections.all_adjusted(cx);
+        eprintln!("Remove primary: new_selections.len() after change = {}", new_selections.len());
     });
 }
 

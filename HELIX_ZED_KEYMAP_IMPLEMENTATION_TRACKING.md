@@ -98,8 +98,8 @@ Normal mode is the default mode when you launch helix. You can return to it from
 
 | Key                      | Description                                                       | Status | Notes |
 | -----                    | -----------                                                       | ------ | ----- |
-| `s`                      | Select all regex matches inside selections                        | ✅ | Interactive prompt with real-time preview |
-| `S`                      | Split selection into sub selections on regex matches              | ✅ | Interactive prompt with real-time preview |
+| `s`                      | Select all regex matches inside selections                        | ✅ | Interactive prompt with real-time preview and exact Helix behavior |
+| `S`                      | Split selection into sub selections on regex matches              | ✅ | Interactive prompt with real-time preview and exact Helix behavior |
 | `Alt-s`                  | Split selection on newlines                                       | ❌ | Not implemented |
 | `Alt-minus`              | Merge selections                                                  | ✅ | Full implementation with tests |
 | `Alt-_`                  | Merge consecutive selections                                      | ✅ | Full implementation with tests |
@@ -122,8 +122,8 @@ Normal mode is the default mode when you launch helix. You can return to it from
 | `Alt-x`                  | Shrink selection to line bounds (line-wise selection)             | ❌ | Not implemented |
 | `J`                      | Join lines inside selection                                       | ❌ | Not implemented |
 | `Alt-J`                  | Join lines inside selection and select the inserted space         | ❌ | Not implemented |
-| `K`                      | Keep selections matching the regex                                | ✅ | Interactive prompt with real-time preview |
-| `Alt-K`                  | Remove selections matching the regex                              | ✅ | Interactive prompt with real-time preview |
+| `K`                      | Keep selections matching the regex                                | ✅ | Interactive prompt with real-time preview and exact Helix behavior |
+| `Alt-K`                  | Remove selections matching the regex                              | ✅ | Interactive prompt with real-time preview and exact Helix behavior |
 | `Ctrl-c`                 | Comment/uncomment the selections                                  | ✅ | Uses vim infrastructure |
 | `Alt-o`, `Alt-up`        | Expand selection to parent syntax node (**TS**)                   | ❌ | Not implemented |
 | `Alt-i`, `Alt-down`      | Shrink syntax tree object selection (**TS**)                      | ❌ | Not implemented |
@@ -344,8 +344,8 @@ Accessed by typing `v` in [normal mode](#normal-mode).
   - Keep/remove primary (`,`, `Alt-,`)
   - Rotate selections (`(`, `)`) and contents (`Alt-(`, `Alt-)`)
 - **Regex Selection Operations**:
-  - Select regex matches (`s`) with interactive prompt and real-time preview ✅
-  - Split selections on regex (`S`) with interactive prompt and real-time preview ✅
+  - Select regex matches (`s`) with interactive prompt, real-time preview, and exact Helix behavior ✅
+  - Split selections on regex (`S`) with interactive prompt, real-time preview, and exact Helix behavior ✅
   - Keep selections matching regex (`K`) with interactive prompt, real-time preview, and exact Helix behavior ✅
   - Remove selections matching regex (`Alt-K`) with interactive prompt, real-time preview, and exact Helix behavior ✅
   - **Interactive UI Features**:
@@ -355,6 +355,7 @@ Accessed by typing `v` in [normal mode](#normal-mode).
     - Graceful handling of invalid regex patterns ✅
     - Empty pattern handling ✅
     - Comprehensive UI integration tests ✅
+    - Mode switching consistency (all operations return to HelixNormal mode) ✅
 - **Mode System**: Normal and Select modes with proper switching
 - **Line Selection**: x for line selection
 - **Basic Editing**: Insert modes, undo/redo, yank/paste, delete/change
@@ -391,6 +392,7 @@ Accessed by typing `v` in [normal mode](#normal-mode).
 
 - ✅ **Movement Tests**: 8+ tests covering all basic and word movements
 - ✅ **Selection Tests**: 31+ tests covering all selection operations
+- ✅ **Regex Selection Tests**: 40+ tests covering all regex operations with UI integration
 - ✅ **Integration Tests**: Keystroke simulation and workflow tests
 - ❌ **Minor Mode Tests**: Not yet implemented
 - ❌ **Text Object Tests**: Not yet implemented
@@ -412,4 +414,8 @@ This tracking document will be updated as new features are implemented.
 - **Fixed Interactive Prompts**: Enter/Escape keys now work correctly to confirm/cancel regex dialogs
 - **Fixed Keep/Remove Behavior**: Now uses partial matches within selections (e.g., keep "o" on selections "one", "two", "three" keeps "one" and "two")
 - **Fixed Key Context**: Updated from "InteractiveRegexPrompt" to "RegexPrompt" to match keymap
-- **Enhanced User Experience**: Added helpful regex tips in the prompt dialog 
+- **Enhanced User Experience**: Added helpful regex tips in the prompt dialog
+- **Fixed Mode Switching**: All regex operations now correctly return to HelixNormal mode regardless of starting mode
+- **Fixed Empty Pattern Handling**: Empty regex patterns now properly trigger mode switching instead of being ignored
+
+This tracking document will be updated as new features are implemented. 

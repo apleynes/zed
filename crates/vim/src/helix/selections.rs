@@ -1,4 +1,4 @@
-use editor::{scroll::Autoscroll};
+use editor::{scroll::Autoscroll, Editor};
 use gpui::{Window, Context};
 use language::Point;
 use crate::Vim;
@@ -8,6 +8,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 // This is a workaround since Zed doesn't have a primary_index concept like Helix
 static PRIMARY_SELECTION_INDEX: AtomicUsize = AtomicUsize::new(0);
 static LAST_SELECTION_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+// Register function for selections module
+pub fn register(_editor: &mut Editor, _cx: &mut Context<Vim>) {
+    // Currently no actions to register for selections module
+    // This function exists to satisfy the module registration pattern
+}
 
 pub fn get_primary_selection_index() -> usize {
     PRIMARY_SELECTION_INDEX.load(Ordering::Relaxed)

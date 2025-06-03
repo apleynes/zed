@@ -6,6 +6,7 @@ pub mod regex_selection;
 pub mod word_movement_tests;
 pub mod debug_harness;
 pub mod verification;
+pub mod match_mode;
 
 #[cfg(test)]
 mod test;
@@ -80,8 +81,11 @@ actions!(
 );
 
 pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
-    // Register movement system
+    mode::register(editor, cx);
     movement::register(editor, cx);
+    selections::register(editor, cx);
+    regex_selection::register(editor, cx);
+    match_mode::register(editor, cx);
     
     // Register mode switching
     mode::register(editor, cx);

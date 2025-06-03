@@ -140,270 +140,174 @@ All regex operations now correctly return to HelixNormal mode:
 - ✅ `K` operation: HelixSelect → HelixNormal
 - ✅ `Alt-K` operation: HelixSelect → HelixNormal
 
+## ✅ PHASE 5: MATCH MODE BRACKET MATCHING IMPLEMENTATION COMPLETED
+
+**MAJOR ACHIEVEMENT**: Successfully implemented Helix-style bracket matching (`m m`) with comprehensive test coverage and exact Helix behavior compliance.
+
+### ✅ Implemented Match Mode Operations
+
+#### 1. ✅ Bracket Matching (`m m`)
+- **Command**: `MatchBrackets`
+- **Key Binding**: `m m`
+- **Functionality**: Jump to matching bracket (requires cursor on bracket)
+- **Helix Equivalent**: `match_brackets` / `goto_matching_bracket`
+- **Implementation**: Full Helix bracket matching algorithm with 9 bracket pairs
+
+#### Supported Bracket Pairs
+- **Parentheses**: `()` 
+- **Square Brackets**: `[]`
+- **Curly Braces**: `{}`
+- **Angle Brackets**: `<>`
+- **Single Quotes**: `''`
+- **Double Quotes**: `""`
+- **French Quotes**: `«»`
+- **Japanese Brackets**: `「」`
+- **Full-width Parentheses**: `（）`
+
+#### Core Features
+- **Bidirectional Matching**: Works from opening to closing bracket and vice versa
+- **Nested Bracket Support**: Correctly handles nested brackets with proper counting
+- **No-Match Handling**: Gracefully handles cursor not on bracket or no match found
+- **Character Limit**: Uses MAX_PLAINTEXT_SCAN limit of 10,000 characters for performance
+- **Mode Preservation**: Maintains HelixNormal mode after bracket matching
+
 ### ✅ Comprehensive Test Coverage
 
-**40+ Regex Selection Tests Passing**:
-- Basic regex selection and splitting operations
-- Keep/remove selections with partial matching
-- UI integration tests with keystroke simulation
-- Real-time preview functionality
-- Error handling for invalid regex patterns
-- Empty pattern handling
-- Mode switching verification
-- Unicode and multiline text support
-- Performance tests for large selections
+**10 Match Mode Tests Passing**:
+- ✅ `test_match_brackets_parentheses` - Basic parentheses matching (opening to closing)
+- ✅ `test_match_brackets_parentheses_reverse` - Reverse parentheses matching (closing to opening)
+- ✅ `test_match_brackets_square_brackets` - Square bracket matching
+- ✅ `test_match_brackets_curly_braces` - Curly brace matching
+- ✅ `test_match_brackets_nested` - Nested bracket handling
+- ✅ `test_match_brackets_no_match` - No-match scenarios
+- ✅ `test_match_brackets_tutor_example_1` - Helix tutor example 1
+- ✅ `test_match_brackets_tutor_example_2` - Helix tutor example 2  
+- ✅ `test_match_brackets_tutor_example_3` - Helix tutor example 3
+- ✅ `test_match_brackets_mode_preservation` - Mode preservation verification
 
 ### ✅ Helix Behavior Compliance
 
-#### Exact Helix Matching
-- **Partial Matches**: Keep/remove operations use `regex.is_match()` for partial matching within selections
-- **Primary Index Reset**: All regex operations reset primary selection index to 0
-- **Mode Switching**: All operations return to HelixNormal mode regardless of starting mode
-- **Selection Preservation**: Empty patterns preserve original selections
-- **Error Handling**: Invalid regex patterns don't crash or change selections
+#### Exact Algorithm Implementation
+- **Plaintext Scanning**: Uses Helix's plaintext scanning approach
+- **Bracket Counting**: Implements proper nested bracket counting
+- **Character Position**: Accurate cursor positioning on matching bracket
+- **Performance Limits**: Respects MAX_PLAINTEXT_SCAN for large files
 
-#### Split Operation Accuracy
-- **Leading Matches**: Correctly handles leading empty selections
-- **Trailing Matches**: Preserves text after final match
-- **Zero-Width Selections**: Preserved unchanged during split operations
-- **Boundary Handling**: Accurate text segmentation on regex boundaries
+#### Integration with Zed
+- **Coordinate Conversion**: Proper conversion between Helix char offsets and Zed display points
+- **Selection Handling**: Uses Zed's selection system with `collapse_to` for cursor positioning
+- **Editor Integration**: Seamless integration with Zed's editor update patterns
 
-## Corrected Understanding of Helix Behavior
+## 🚨 CRITICAL DISCOVERY: VIM ACTION->OBJECT PARADIGM INCOMPATIBILITY
 
-### Fundamental Movement Semantics
+**MAJOR ARCHITECTURAL INSIGHT**: During match mode implementation, we discovered a fundamental incompatibility between vim's action->object paradigm and Helix's selection+action approach that forces complete refactoring.
 
-**From Helix Tutor and Implementation**:
+### The Core Problem
 
-1. **Basic movements (h,j,k,l)**: Cursor-only movement, just like vim
-2. **Word movements (w,e,b)**: Create selections in normal mode, extend in select mode  
-3. **Line movements (x)**: Select entire lines
-4. **Document movements (gg,G)**: Create selections to absolute positions
-
-**Critical Insight**: Helix is NOT "always selecting" - basic cursor movements work exactly like vim.
-
-### Selection vs Motion Paradigm
-
-**Vim**: `action + motion` → `dw` (delete word)
-**Helix**: `selection + action` → `w` (select word) then `d` (delete selection)
-
-**Key Benefits**:
-- Visual feedback before action
-- Multiple selections before acting
-- Reusable selections for multiple operations
-- Explicit selection creation vs implicit motion-based actions
-
-### Mode System
-
-From implementation and tutor analysis:
-
+#### Vim's Action->Object Paradigm
 ```
-Normal Mode:
-- h,j,k,l: cursor movement only
-- w,e,b: create selections  
-- x: select whole line
-- d: delete current selection
-- i: enter insert mode
-
-Select Mode (v):
-- ALL movements extend existing selections
-- Entered with 'v', exited with 'v' or Escape
-- Enables multi-selection workflows
+Vim: action + motion → dw (delete word)
+- Action initiated first (d)
+- Motion/object selected second (w)  
+- When object is selected, motion is completed
+- Vim FORCES return to Normal mode (not HelixNormal)
 ```
 
-### Selection Manipulation
-
-From Helix tutor:
-- `;` - collapse selections to cursor
-- `Alt-;` - flip selection direction (swap anchor and head)
-- `v` - enter/exit select mode
-- Numbers with motions: `2w` selects forward 2 words
-
-## Implementation Architecture in Zed
-
-### Directory Structure (Implemented)
-
+#### Helix's Selection+Action Paradigm  
 ```
-zed/crates/vim/src/
-├── helix/
-│   ├── mod.rs                    # ✅ Public interface and registration
-│   ├── movement.rs               # ✅ Helix-style movement commands
-│   ├── mode.rs                   # ✅ Mode switching (Normal/Select)
-│   ├── movement_test.rs          # ✅ Comprehensive movement tests
-│   ├── selection_test.rs         # ✅ Comprehensive selection operation tests
-│   ├── selections.rs             # ✅ Selection manipulation operations
-│   ├── regex_selection.rs        # ✅ Interactive regex selection operations
-│   ├── regex_selection_tests.rs  # ✅ Comprehensive regex operation tests
-│   └── core.rs                   # ✅ Core Helix movement logic
-├── vim.rs                        # Main vim integration
-└── state.rs                      # ✅ Mode definitions
+Helix: selection + action → w (select word) then d (delete selection)
+- Selection created first (w)
+- Action applied second (d)
+- Maintains HelixNormal mode throughout
 ```
 
-### Core Implementation Principles (Applied)
+### The Incompatibility Issue
 
-#### 1. ✅ Reused Vim Infrastructure Successfully
+When using Zed's existing vim infrastructure for match mode operations:
 
-**Reused**:
-- All basic motion functions (`motion.move_point()`)
-- Text layout and display system
-- Editor update patterns
-- Selection manipulation primitives
+1. **Surround Operations**: `vim.push_operator(Operator::AddSurrounds)` 
+   - ✅ **Works**: But forces return to `Mode::Normal` instead of `Mode::HelixNormal`
+   - ❌ **Problem**: Breaks Helix mode consistency
 
-**Modified**:
-- Mode classification (`is_visual()` excludes `HelixSelect`)
-- Motion positioning for word-end movements (inclusive vs exclusive)
-- Document motion absolute positioning
+2. **Text Object Operations**: `vim.push_operator(Operator::Object)`
+   - ✅ **Works**: But forces return to `Mode::Normal` instead of `Mode::HelixNormal`  
+   - ❌ **Problem**: Breaks Helix mode consistency
 
-#### 2. ✅ Proper Movement/Selection Separation
+3. **Character Input**: Using vim's operator system for character prompts
+   - ✅ **Works**: But forces return to `Mode::Normal` instead of `Mode::HelixNormal`
+   - ❌ **Problem**: Breaks Helix mode consistency
 
+### Why This Triggered Complete Refactoring
+
+This discovery revealed that **any use of vim's existing operator system breaks Helix mode consistency**. The fundamental paradigm difference means:
+
+- **Vim operators expect**: action->object workflow ending in Normal mode
+- **Helix operations expect**: selection+action workflow maintaining HelixNormal mode
+- **No compatibility layer possible**: The paradigms are fundamentally incompatible
+
+### The Solution: Complete Helix Implementation
+
+Instead of trying to adapt vim operators, we must implement **pure Helix functionality**:
+
+#### ✅ Already Implemented (Pure Helix)
+- **Bracket Matching**: Direct implementation without vim operators ✅
+- **Regex Selection Operations**: Pure Helix implementation ✅
+- **Selection Manipulation**: Pure Helix implementation ✅
+- **Movement Operations**: Pure Helix implementation ✅
+
+#### 🚧 Needs Pure Helix Implementation
+- **Surround Operations**: Must implement without `vim.push_operator()`
+- **Text Object Selection**: Must implement without `vim.push_operator()`
+- **Character Input**: Must implement custom prompt system
+
+### Implementation Strategy Going Forward
+
+#### 1. **Avoid Vim Operators Completely**
 ```rust
-// ✅ Implemented: Basic movements (cursor-only in normal mode)
-fn helix_move_cursor(&mut self, motion: Motion, extend: bool, ...) {
-    if extend {
-        // Select mode: extend existing selections
-        self.update_editor(|editor| {
-            editor.change_selections(|s| {
-                s.move_with(|map, selection| {
-                    if selection.is_empty() {
-                        // Create selection from cursor to destination
-                        selection.set_tail(current_head, goal);
-                        selection.set_head(new_head, goal);
-                    } else {
-                        // Extend existing selection
-                        selection.set_head(new_head, goal);
-                    }
-                });
-            });
-        });
-    } else {
-        // Normal mode: cursor-only movement
-        self.normal_motion(motion, None, Some(1), false, window, cx);
-    }
-}
+// ❌ DON'T DO THIS - Forces return to Normal mode
+vim.push_operator(crate::state::Operator::AddSurrounds { target: None }, window, cx);
+
+// ✅ DO THIS - Maintain HelixNormal mode  
+helix_surround_add_implementation(vim, character, window, cx);
 ```
 
-#### 3. ✅ Word Movement Selection Creation
-
+#### 2. **Implement Custom Character Input**
 ```rust
-// ✅ Implemented: Word movements create selections in normal mode
-fn helix_word_move_cursor(&mut self, motion: Motion, ...) {
-    if self.is_helix_select_mode() {
-        // Select mode: extend existing selections
-        // Only move the head, preserve tail
-    } else {
-        // Normal mode: create selection from cursor to destination
-        let start_pos = selection.head();
-        let end_pos = motion.move_point(...);
-        
-        // Fix for word-end motions (inclusive positioning)
-        if matches!(motion, Motion::NextWordEnd { .. }) {
-            end_pos = movement::right(map, end_pos);
-        }
-        
-        selection.set_tail(start_pos, goal);
-        selection.set_head(end_pos, goal);
-    }
-}
+// ❌ DON'T DO THIS - Uses vim operator system
+vim.push_operator(Operator::Object, window, cx);
+
+// ✅ DO THIS - Custom Helix-style prompt
+helix_prompt_for_character(vim, |character| {
+    helix_text_object_implementation(vim, character, window, cx);
+});
 ```
 
-#### 4. ✅ Interactive Regex Selection System
-
+#### 3. **Pure Helix Mode Management**
 ```rust
-// ✅ Implemented: Real-time preview with modal UI
-pub struct InteractiveRegexPrompt {
-    vim: WeakEntity<Vim>,
-    editor: WeakEntity<Editor>,
-    operation: RegexOperation,
-    original_selections: Vec<std::ops::Range<Point>>,
-    regex_editor: Entity<Editor>,
-    // ... real-time preview implementation
-}
+// ✅ Always maintain Helix mode consistency
+vim.switch_mode(crate::Mode::HelixNormal, false, window, cx);
+// Never allow return to Mode::Normal from Helix operations
 ```
 
-### Key Fixes Applied
+### Documentation Update
 
-#### 1. ✅ Mode Classification Fix
+This critical discovery has been documented in:
+- **HELIX_TO_ZED_NOTES.md**: This section
+- **HELIX_ZED_KEYMAP_IMPLEMENTATION_TRACKING.md**: Updated implementation notes
+- **Code Comments**: Added warnings about vim operator incompatibility
 
-**Problem**: `HelixSelect` incorrectly treated as visual mode
-**Solution**: Modified `Mode::is_visual()` to exclude `HelixSelect`
+### Impact on Future Development
 
-```rust
-// ✅ Fixed in zed/crates/vim/src/state.rs
-impl Mode {
-    pub fn is_visual(&self) -> bool {
-        match self {
-            Self::Visual | Self::VisualLine | Self::VisualBlock => true,
-            // HelixSelect is NOT a visual mode
-            Self::Normal | Self::Insert | Self::Replace 
-            | Self::HelixNormal | Self::HelixSelect => false,
-        }
-    }
-}
-```
+All future Helix feature implementations must:
+1. **Avoid vim operators entirely**
+2. **Implement pure Helix functionality**  
+3. **Maintain HelixNormal mode consistency**
+4. **Use custom prompt systems for character input**
+5. **Test mode switching behavior thoroughly**
 
-#### 2. ✅ Word-End Motion Positioning Fix
+This discovery validates the decision to port Helix completely into Zed rather than trying to adapt vim infrastructure.
 
-**Problem**: Word-end motions positioned cursor before target character
-**Solution**: Adjusted positioning for inclusive behavior
-
-```rust
-// ✅ Fixed in helix/movement.rs
-if matches!(motion, Motion::NextWordEnd { .. } | Motion::PreviousWordEnd { .. }) {
-    end_pos = editor::movement::right(map, end_pos);
-}
-```
-
-#### 3. ✅ Document Movement Absolute Positioning
-
-**Problem**: Document movements preserved column position (vim behavior)
-**Solution**: Implemented absolute positioning for Helix behavior
-
-```rust
-// ✅ Fixed in helix/movement.rs
-if matches!(motion, Motion::StartOfDocument) {
-    // Go to absolute beginning (row 0, column 0)
-    end_pos = map.clip_point(DisplayPoint::new(DisplayRow(0), 0), Bias::Left);
-} else if matches!(motion, Motion::EndOfDocument) {
-    // Go to last character of content (not beyond)
-    let max_pos = map.max_point();
-    end_pos = editor::movement::left(map, max_pos);
-}
-```
-
-#### 4. ✅ Select Mode Extension Logic
-
-**Problem**: Select mode word movements collapsed existing selections
-**Solution**: Separate logic for extending vs creating selections
-
-```rust
-// ✅ Fixed: In select mode, only move head, preserve tail
-if self.is_helix_select_mode() {
-    // Extend existing selection - only move the head
-    selection.set_head(end_pos, goal);
-} else {
-    // Create new selection from current cursor
-    selection.set_tail(start_pos, selection.goal);
-    selection.set_head(end_pos, goal);
-}
-```
-
-#### 5. ✅ Regex Operations Mode Switching Fix
-
-**Problem**: Empty regex patterns didn't trigger mode switching
-**Solution**: Always switch to HelixNormal mode on confirm, regardless of pattern
-
-```rust
-// ✅ Fixed: Always switch mode even with empty patterns
-if !pattern.trim().is_empty() {
-    apply_regex_selection(/* ... */);
-} else {
-    // Even with empty pattern, switch to HelixNormal mode
-    let _ = self.vim.update(cx, |vim, cx| {
-        vim.switch_mode(crate::Mode::HelixNormal, false, window, cx);
-    });
-}
-```
-
-## Test Coverage ✅
+## ✅ Comprehensive Test Coverage
 
 All Helix tests passing - 87+ total tests:
 

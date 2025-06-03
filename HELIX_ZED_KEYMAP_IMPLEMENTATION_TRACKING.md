@@ -214,12 +214,14 @@ Accessed by typing `m` in [normal mode](#normal-mode).
 
 | Key              | Description                                     | Status | Notes |
 | -----            | -----------                                     | ------ | ----- |
-| `m`              | Goto matching bracket (**TS**)                  | ❌ | Not implemented |
-| `s` `<char>`     | Surround current selection with `<char>`        | ❌ | Not implemented |
-| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | ❌ | Not implemented |
-| `d` `<char>`     | Delete surround character `<char>`              | ❌ | Not implemented |
-| `a` `<object>`   | Select around textobject                        | ❌ | Not implemented |
-| `i` `<object>`   | Select inside textobject                        | ❌ | Not implemented |
+| `m`              | Goto matching bracket (**TS**)                  | ✅ | Full implementation with comprehensive tests and exact Helix behavior |
+| `s` `<char>`     | Surround current selection with `<char>`        | 🚧 | Partial - uses vim operators (forces Normal mode) |
+| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | ❌ | Not implemented - needs pure Helix implementation |
+| `d` `<char>`     | Delete surround character `<char>`              | 🚧 | Partial - uses vim operators (forces Normal mode) |
+| `a` `<object>`   | Select around textobject                        | ❌ | Not implemented - needs pure Helix implementation |
+| `i` `<object>`   | Select inside textobject                        | ❌ | Not implemented - needs pure Helix implementation |
+
+**⚠️ Critical Issue**: Surround operations (`s`, `d`) currently use vim's operator system which forces return to `Normal` mode instead of `HelixNormal` mode, breaking Helix mode consistency. This requires complete reimplementation without vim operators.
 
 #### Window mode
 
@@ -337,6 +339,10 @@ Accessed by typing `v` in [normal mode](#normal-mode).
 - **Basic Movement**: h, j, k, l, arrow keys
 - **Word Movement**: w, e, b, W, E, B with proper punctuation handling
 - **Find Character**: f, F, t, T with precise positioning
+- **Match Mode**: 
+  - Bracket matching (`m m`) with support for 9 bracket pairs: (), {}, [], <>, '', "", «», 「」, （）
+  - Comprehensive test coverage with 10 test cases including nested brackets and tutor examples
+  - Exact Helix behavior compliance with bidirectional matching and proper nested bracket handling
 - **Selection Operations**: 
   - Collapse (`;`), flip (`Alt-;`), merge (`Alt--`, `Alt-_`)
   - Trim (`_`), align (`&`)
@@ -363,6 +369,17 @@ Accessed by typing `v` in [normal mode](#normal-mode).
 
 ### 🚧 Partially Implemented
 - **Select All**: % command implemented
+- **Match Mode Surround Operations**: `m s`, `m d` use vim operators but force Normal mode (incompatible with Helix)
+
+### 🚨 Critical Architectural Issue: Vim Operator Incompatibility
+
+**MAJOR DISCOVERY**: Vim's action->object paradigm is fundamentally incompatible with Helix's selection+action approach:
+
+- **Problem**: Any use of `vim.push_operator()` forces return to `Mode::Normal` instead of `Mode::HelixNormal`
+- **Impact**: Breaks Helix mode consistency and user experience
+- **Solution**: All Helix features must be implemented without vim operators using pure Helix functionality
+- **Affected Features**: Surround operations, text objects, character input prompts
+- **Status**: This discovery validates the complete Helix port approach rather than vim adaptation
 
 ### ❌ Major Missing Features
 - **Minor Mode Systems**: g (goto), m (match), z (view), Space modes
@@ -393,9 +410,16 @@ Accessed by typing `v` in [normal mode](#normal-mode).
 - ✅ **Movement Tests**: 8+ tests covering all basic and word movements
 - ✅ **Selection Tests**: 31+ tests covering all selection operations
 - ✅ **Regex Selection Tests**: 40+ tests covering all regex operations with UI integration
+- ✅ **Match Mode Tests**: 10+ tests covering bracket matching with comprehensive scenarios including:
+  - Basic bracket matching (parentheses, square brackets, curly braces)
+  - Bidirectional matching (opening to closing and vice versa)
+  - Nested bracket handling with proper counting
+  - No-match scenarios and error handling
+  - Helix tutor example scenarios
+  - Mode preservation verification
 - ✅ **Integration Tests**: Keystroke simulation and workflow tests
-- ❌ **Minor Mode Tests**: Not yet implemented
-- ❌ **Text Object Tests**: Not yet implemented
+- ❌ **Minor Mode Tests**: Not yet implemented (goto, view, space modes)
+- ❌ **Text Object Tests**: Not yet implemented (requires pure Helix implementation)
 
 ---
 

@@ -653,6 +653,119 @@ pub fn byte_offset_to_char_index(text: &Rope, byte_offset: usize) -> usize {
     char_count
 }
 
+/// Bracket pairs supported for matching
+const BRACKETS: [(char, char); 9] = [
+    ('(', ')'),
+    ('{', '}'),
+    ('[', ']'),
+    ('<', '>'),
+    ('\'', '\''),
+    ('"', '"'),
+    ('«', '»'),
+    ('「', '」'),
+    ('（', '）'),
+];
+
+/// Maximum characters to scan for plaintext bracket matching
+const MAX_PLAINTEXT_SCAN: usize = 10000;
+
+/// Find matching bracket for the character at the given position
+/// 
+/// Returns the position of the matching bracket, or None if:
+/// - The character at pos is not a bracket
+/// - No matching bracket is found
+/// - The position is out of bounds
+pub fn find_matching_bracket(text: &Rope, pos: usize) -> Option<usize> {
+    if pos >= text.chars().count() {
+        return None;
+    }
+    
+    let ch = text.chars().nth(pos)?;
+    if !is_valid_bracket(ch) {
+        return None;
+    }
+    
+    find_matching_bracket_plaintext(text, pos)
+}
+
+/// Find matching bracket using plaintext scanning (no tree-sitter)
+/// 
+/// This is a simplified version of Helix's plaintext bracket matching
+/// that works without tree-sitter syntax information.
+fn find_matching_bracket_plaintext(text: &Rope, cursor_pos: usize) -> Option<usize> {
+    let bracket = text.chars().nth(cursor_pos)?;
+    let matching_bracket = {
+        let pair = get_bracket_pair(bracket);
+        if pair.0 == bracket {
+            pair.1
+        } else {
+            pair.0
+        }
+    };
+    
+    // Don't do anything when the cursor is not on top of a bracket
+    if !is_valid_bracket(bracket) {
+        return None;
+    }
+    
+    // Determine the direction of the matching
+    let is_forward = is_open_bracket(bracket);
+    let chars_iter: Box<dyn Iterator<Item = char>> = if is_forward {
+        Box::new(text.chars_at(cursor_pos + 1))
+    } else {
+        // For backward iteration, collect chars and reverse
+        let chars_before: Vec<char> = text.chars_at(0).take(cursor_pos).collect();
+        Box::new(chars_before.into_iter().rev())
+    };
+    
+    let mut open_count = 1;
+    
+    for (i, candidate) in chars_iter.take(MAX_PLAINTEXT_SCAN).enumerate() {
+        if candidate == bracket {
+            open_count += 1;
+        } else if candidate == matching_bracket {
+            // Return when all pending brackets have been closed
+            if open_count == 1 {
+                return Some(if is_forward {
+                    cursor_pos + i + 1
+                } else {
+                    cursor_pos.saturating_sub(i + 1)
+                });
+            }
+            open_count -= 1;
+        }
+    }
+    
+    None
+}
+
+/// Get the bracket pair for a given character
+/// 
+/// Returns (open, close) pair. If the character is not a bracket,
+/// returns (ch, ch).
+fn get_bracket_pair(ch: char) -> (char, char) {
+    BRACKETS
+        .iter()
+        .find(|(open, close)| *open == ch || *close == ch)
+        .copied()
+        .unwrap_or((ch, ch))
+}
+
+/// Check if a character is an opening bracket
+fn is_open_bracket(ch: char) -> bool {
+    BRACKETS.iter().any(|(open, _)| *open == ch)
+}
+
+/// Check if a character is a closing bracket
+fn is_close_bracket(ch: char) -> bool {
+    BRACKETS.iter().any(|(_, close)| *close == ch)
+}
+
+/// Check if a character is a valid bracket (opening or closing)
+fn is_valid_bracket(ch: char) -> bool {
+    BRACKETS.iter().any(|(open, close)| *open == ch || *close == ch)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1607,5 +1720,37 @@ mod tests {
             text.chars().skip(merged_123.from()).take(merged_123.len()).collect::<String>());
         println!("Separate 4: {:?} ('{}')", sel4,
             text.chars().skip(sel4.from()).take(sel4.len()).collect::<String>());
+    }
+
+    #[test]
+    fn test_find_matching_bracket_simple() {
+        // Test basic bracket matching
+        let text = Rope::from("function(arg)");
+        
+        // Test opening bracket at position 8 '('
+        let result = find_matching_bracket(&text, 8);
+        assert_eq!(result, Some(12)); // Should find closing ')' at position 12
+        
+        // Test closing bracket at position 12 ')'
+        let result = find_matching_bracket(&text, 12);
+        assert_eq!(result, Some(8)); // Should find opening '(' at position 8
+        
+        // Test non-bracket character
+        let result = find_matching_bracket(&text, 0); // 'f'
+        assert_eq!(result, None); // Should return None
+    }
+
+    #[test]
+    fn test_find_matching_bracket_nested() {
+        // Test nested brackets
+        let text = Rope::from("outer(inner(deep))");
+        
+        // Test opening bracket of inner pair at position 11 '('
+        let result = find_matching_bracket(&text, 11);
+        assert_eq!(result, Some(16)); // Should find closing ')' at position 16
+        
+        // Test opening bracket of outer pair at position 5 '('
+        let result = find_matching_bracket(&text, 5);
+        assert_eq!(result, Some(17)); // Should find closing ')' at position 17
     }
 }

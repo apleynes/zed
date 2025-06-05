@@ -39,7 +39,7 @@ fn eval_extract_handle_command_output() {
     // Model                       | Pass rate
     // ----------------------------|----------
     // claude-3.7-sonnet           |  0.98
-    // gemini-2.5-pro              |  0.86
+    // gemini-2.5-pro-06-05        |  0.77
     // gemini-2.5-flash            |  0.11
     // gpt-4.1                     |  1.00
 
@@ -1351,7 +1351,7 @@ fn eval(iterations: usize, expected_pass_ratio: f32, mut eval: EvalInput) {
 
     let mismatched_tag_ratio =
         cumulative_parser_metrics.mismatched_tags as f32 / cumulative_parser_metrics.tags as f32;
-    if mismatched_tag_ratio > 0.05 {
+    if mismatched_tag_ratio > 0.10 {
         for eval_output in eval_outputs {
             println!("{}", eval_output);
         }

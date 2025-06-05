@@ -10,9 +10,7 @@ use parking_lot::Mutex;
 use project::{CompletionIntent, CompletionSource, lsp_store::CompletionDocumentation};
 use rope::Point;
 use std::{
-    cell::RefCell,
     ops::Range,
-    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering::SeqCst},
@@ -326,22 +324,13 @@ impl CompletionProvider for SlashCommandCompletionProvider {
         }
     }
 
-    fn resolve_completions(
-        &self,
-        _: Entity<Buffer>,
-        _: Vec<usize>,
-        _: Rc<RefCell<Box<[project::Completion]>>>,
-        _: &mut Context<Editor>,
-    ) -> Task<Result<bool>> {
-        Task::ready(Ok(true))
-    }
-
     fn is_completion_trigger(
         &self,
         buffer: &Entity<Buffer>,
         position: language::Anchor,
         _text: &str,
         _trigger_in_words: bool,
+        _menu_is_open: bool,
         cx: &mut Context<Editor>,
     ) -> bool {
         let buffer = buffer.read(cx);

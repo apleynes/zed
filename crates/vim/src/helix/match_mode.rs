@@ -660,15 +660,19 @@ pub fn handle_surround_replace_input(
                     let start_point = range.start.to_point(&snapshot.display_snapshot);
                     let end_point = range.end.to_point(&snapshot.display_snapshot);
                     
-                    // Replace closing character first (to maintain positions)
-                    let close_range = snapshot.buffer_snapshot.anchor_before(end_point)
-                        ..snapshot.buffer_snapshot.anchor_after(end_point);
-                    edits.push((close_range, new_close_char.to_string()));
+                    // Replace closing character first (to maintain positions)  
+                    // The closing character is at end_point.column - 1
+                    let close_start_point = language::Point::new(end_point.row, end_point.column.saturating_sub(1));
+                    let close_start_anchor = snapshot.buffer_snapshot.anchor_before(close_start_point);
+                    let close_end_anchor = snapshot.buffer_snapshot.anchor_after(end_point);
+                    edits.push((close_start_anchor..close_end_anchor, new_close_char.to_string()));
                     
                     // Replace opening character
-                    let open_range = snapshot.buffer_snapshot.anchor_before(start_point)
-                        ..snapshot.buffer_snapshot.anchor_after(start_point);
-                    edits.push((open_range, new_open_char.to_string()));
+                    // The opening character is from start_point to start_point.column + 1
+                    let open_end_point = language::Point::new(start_point.row, start_point.column + 1);
+                    let open_start_anchor = snapshot.buffer_snapshot.anchor_before(start_point);
+                    let open_end_anchor = snapshot.buffer_snapshot.anchor_after(open_end_point);
+                    edits.push((open_start_anchor..open_end_anchor, new_open_char.to_string()));
                 }
             }
             

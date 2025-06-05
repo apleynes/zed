@@ -8,6 +8,9 @@ pub mod debug_harness;
 pub mod verification;
 pub mod match_mode;
 
+// Re-export commonly used match_mode types for tests
+pub use match_mode::{SelectTextObjectChar, SurroundAddChar, SurroundDeleteChar, SurroundReplaceFromChar, SurroundReplaceToChar};
+
 #[cfg(test)]
 mod test;
 

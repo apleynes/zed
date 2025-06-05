@@ -968,5 +968,81 @@
       "ctrl-c": "helix_match_mode::CancelTextObject",
       "ctrl-[": "helix_match_mode::CancelTextObject"
     }
+  },
+  {
+    "context": "vim_mode == helix_normal && helix_awaiting_surround_add",
+    "bindings": {
+      "(": ["helix_match_mode::SurroundAddChar", { "char": "(" }],
+      ")": ["helix_match_mode::SurroundAddChar", { "char": ")" }],
+      "[": ["helix_match_mode::SurroundAddChar", { "char": "[" }],
+      "]": ["helix_match_mode::SurroundAddChar", { "char": "]" }],
+      "{": ["helix_match_mode::SurroundAddChar", { "char": "{" }],
+      "}": ["helix_match_mode::SurroundAddChar", { "char": "}" }],
+      "<": ["helix_match_mode::SurroundAddChar", { "char": "<" }],
+      ">": ["helix_match_mode::SurroundAddChar", { "char": ">" }],
+      "\"": ["helix_match_mode::SurroundAddChar", { "char": "\"" }],
+      "'": ["helix_match_mode::SurroundAddChar", { "char": "'" }],
+      "`": ["helix_match_mode::SurroundAddChar", { "char": "`" }],
+      "escape": "helix_match_mode::CancelSurround",
+      "ctrl-c": "helix_match_mode::CancelSurround",
+      "ctrl-[": "helix_match_mode::CancelSurround"
+    }
+  },
+  {
+    "context": "vim_mode == helix_normal && helix_awaiting_surround_delete",
+    "bindings": {
+      "(": ["helix_match_mode::SurroundDeleteChar", { "char": "(" }],
+      ")": ["helix_match_mode::SurroundDeleteChar", { "char": ")" }],
+      "[": ["helix_match_mode::SurroundDeleteChar", { "char": "[" }],
+      "]": ["helix_match_mode::SurroundDeleteChar", { "char": "]" }],
+      "{": ["helix_match_mode::SurroundDeleteChar", { "char": "{" }],
+      "}": ["helix_match_mode::SurroundDeleteChar", { "char": "}" }],
+      "<": ["helix_match_mode::SurroundDeleteChar", { "char": "<" }],
+      ">": ["helix_match_mode::SurroundDeleteChar", { "char": ">" }],
+      "\"": ["helix_match_mode::SurroundDeleteChar", { "char": "\"" }],
+      "'": ["helix_match_mode::SurroundDeleteChar", { "char": "'" }],
+      "`": ["helix_match_mode::SurroundDeleteChar", { "char": "`" }],
+      "escape": "helix_match_mode::CancelSurround",
+      "ctrl-c": "helix_match_mode::CancelSurround",
+      "ctrl-[": "helix_match_mode::CancelSurround"
+    }
+  },
+  {
+    "context": "vim_mode == helix_normal && helix_awaiting_surround_replace_from",
+    "bindings": {
+      "(": ["helix_match_mode::SurroundReplaceFromChar", { "char": "(" }],
+      ")": ["helix_match_mode::SurroundReplaceFromChar", { "char": ")" }],
+      "[": ["helix_match_mode::SurroundReplaceFromChar", { "char": "[" }],
+      "]": ["helix_match_mode::SurroundReplaceFromChar", { "char": "]" }],
+      "{": ["helix_match_mode::SurroundReplaceFromChar", { "char": "{" }],
+      "}": ["helix_match_mode::SurroundReplaceFromChar", { "char": "}" }],
+      "<": ["helix_match_mode::SurroundReplaceFromChar", { "char": "<" }],
+      ">": ["helix_match_mode::SurroundReplaceFromChar", { "char": ">" }],
+      "\"": ["helix_match_mode::SurroundReplaceFromChar", { "char": "\"" }],
+      "'": ["helix_match_mode::SurroundReplaceFromChar", { "char": "'" }],
+      "`": ["helix_match_mode::SurroundReplaceFromChar", { "char": "`" }],
+      "escape": "helix_match_mode::CancelSurround",
+      "ctrl-c": "helix_match_mode::CancelSurround",
+      "ctrl-[": "helix_match_mode::CancelSurround"
+    }
+  },
+  {
+    "context": "vim_mode == helix_normal && helix_awaiting_surround_replace_to",
+    "bindings": {
+      "(": ["helix_match_mode::SurroundReplaceToChar", { "char": "(" }],
+      ")": ["helix_match_mode::SurroundReplaceToChar", { "char": ")" }],
+      "[": ["helix_match_mode::SurroundReplaceToChar", { "char": "[" }],
+      "]": ["helix_match_mode::SurroundReplaceToChar", { "char": "]" }],
+      "{": ["helix_match_mode::SurroundReplaceToChar", { "char": "{" }],
+      "}": ["helix_match_mode::SurroundReplaceToChar", { "char": "}" }],
+      "<": ["helix_match_mode::SurroundReplaceToChar", { "char": "<" }],
+      ">": ["helix_match_mode::SurroundReplaceToChar", { "char": ">" }],
+      "\"": ["helix_match_mode::SurroundReplaceToChar", { "char": "\"" }],
+      "'": ["helix_match_mode::SurroundReplaceToChar", { "char": "'" }],
+      "`": ["helix_match_mode::SurroundReplaceToChar", { "char": "`" }],
+      "escape": "helix_match_mode::CancelSurround",
+      "ctrl-c": "helix_match_mode::CancelSurround",
+      "ctrl-[": "helix_match_mode::CancelSurround"
+    }
   }
 ]

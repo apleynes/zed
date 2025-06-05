@@ -847,28 +847,7 @@ impl Vim {
             }
         }
         
-        // Handle Helix text object character input
-        if let Some(around) = self.match_mode_awaiting_text_object {
-            if self.match_mode_skip_next_text_object_intercept {
-                // Skip this keystroke, but clear the flag for the next one
-                self.match_mode_skip_next_text_object_intercept = false;
-                println!("DEBUG: Skipping text object interception for this keystroke");
-                return; // Important: return here to prevent further processing
-            } else if let Some(ch) = keystroke_event.keystroke.key.chars().next() {
-                // Only intercept single character keys, not special keys or actions
-                if ch.is_ascii_graphic() || ch == ' ' {
-                    println!("DEBUG: Intercepted character '{}' for text object, around={}", ch, around);
-                    crate::helix::match_mode::handle_text_object_input(self, ch, around, window, cx);
-                    return;
-                } else {
-                    println!("DEBUG: Ignoring non-graphic character for text object: {:?}", ch);
-                    // Clear the state if we get an unexpected character
-                    self.match_mode_awaiting_text_object = None;
-                    self.match_mode_skip_next_text_object_intercept = false;
-                    self.status_label = None;
-                }
-            }
-        }
+        // Note: Text object operations now handled by keymap contexts instead of keystroke interception
         
         // Note: Surround add operations now handled by keymap contexts instead of keystroke interception
         
@@ -1192,6 +1171,7 @@ impl Vim {
     }
 
     pub fn extend_key_context(&self, context: &mut KeyContext, cx: &App) {
+        println!("DEBUG: extend_key_context called, match_mode_awaiting_text_object: {:?}", self.match_mode_awaiting_text_object);
         let mut mode = match self.mode {
             Mode::Normal => "normal",
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => "visual",
@@ -1237,6 +1217,8 @@ impl Vim {
                 context.add("helix_awaiting_text_object_inside");
                 println!("DEBUG: Added helix_awaiting_text_object_inside context");
             }
+        } else {
+            println!("DEBUG: match_mode_awaiting_text_object is None");
         }
         
         // Add context for Helix surround operation awaiting states
@@ -1635,16 +1617,7 @@ impl Vim {
             return;
         }
 
-        println!("DEBUG: input_ignored called with text='{}', match_mode_awaiting_text_object={:?}", text, self.match_mode_awaiting_text_object);
-
-        // Handle Helix text object input first
-        if let Some(around) = self.match_mode_awaiting_text_object {
-            if let Some(ch) = text.chars().next() {
-                println!("DEBUG: Calling handle_text_object_input with ch='{}', around={}", ch, around);
-                crate::helix::match_mode::handle_text_object_input(self, ch, around, window, cx);
-                return;
-            }
-        }
+        // Note: Text object input now handled by keymap contexts instead of input_ignored
 
         // Handle match mode input
         if match_mode::handle_match_mode_input(self, &text, window, cx) {

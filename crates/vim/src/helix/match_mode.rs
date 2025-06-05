@@ -13,6 +13,26 @@ pub struct SelectTextObjectChar {
     pub around: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+pub struct SurroundAddChar {
+    pub char: char,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+pub struct SurroundDeleteChar {
+    pub char: char,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+pub struct SurroundReplaceFromChar {
+    pub char: char,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
+pub struct SurroundReplaceToChar {
+    pub char: char,
+}
+
 actions!(
     helix_match_mode,
     [
@@ -23,10 +43,17 @@ actions!(
         SelectTextObjectAround,
         SelectTextObjectInside,
         CancelTextObject,
+        CancelSurround,
     ]
 );
 
-impl_actions!(helix_match_mode, [SelectTextObjectChar]);
+impl_actions!(helix_match_mode, [
+    SelectTextObjectChar,
+    SurroundAddChar,
+    SurroundDeleteChar,
+    SurroundReplaceFromChar,
+    SurroundReplaceToChar,
+]);
 
 /// Register match mode actions
 pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
@@ -38,6 +65,13 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     Vim::action(editor, cx, helix_select_text_object_inside);
     Vim::action(editor, cx, helix_select_text_object_char);
     Vim::action(editor, cx, helix_cancel_text_object);
+    
+    // New keymap-based surround actions
+    Vim::action(editor, cx, helix_surround_add_char);
+    Vim::action(editor, cx, helix_surround_delete_char);
+    Vim::action(editor, cx, helix_surround_replace_from_char);
+    Vim::action(editor, cx, helix_surround_replace_to_char);
+    Vim::action(editor, cx, helix_cancel_surround);
 }
 
 /// Match brackets functionality - jump to matching bracket
@@ -149,7 +183,6 @@ fn helix_surround_add(
     
     // Set the context for surround character input
     vim.match_mode_awaiting_surround_add = true;
-    vim.match_mode_skip_next_text_object_intercept = true; // Skip the current keystroke
     vim.status_label = Some("Surround with: ".into());
     println!("DEBUG: Set match_mode_awaiting_surround_add to true");
     cx.notify();
@@ -170,7 +203,6 @@ fn helix_surround_replace(
     
     // Set the context for surround replace character input
     vim.match_mode_awaiting_surround_replace_from = true;
-    vim.match_mode_skip_next_text_object_intercept = true; // Skip the current keystroke
     vim.status_label = Some("Replace surround from: ".into());
     println!("DEBUG: Set match_mode_awaiting_surround_replace_from to true");
     cx.notify();
@@ -191,7 +223,6 @@ fn helix_surround_delete(
     
     // Set the context for surround delete character input
     vim.match_mode_awaiting_surround_delete = true;
-    vim.match_mode_skip_next_text_object_intercept = true; // Skip the current keystroke
     vim.status_label = Some("Delete surround: ".into());
     println!("DEBUG: Set match_mode_awaiting_surround_delete to true");
     cx.notify();
@@ -212,7 +243,6 @@ fn helix_select_text_object_around(
     
     // Set the context for text object character input
     vim.match_mode_awaiting_text_object = Some(true);
-    vim.match_mode_skip_next_text_object_intercept = true; // Skip the current keystroke
     vim.status_label = Some("Select around object: ".into());
     println!("DEBUG: Set match_mode_awaiting_text_object to Some(true)");
     cx.notify();
@@ -233,7 +263,6 @@ fn helix_select_text_object_inside(
     
     // Set the context for text object character input
     vim.match_mode_awaiting_text_object = Some(false);
-    vim.match_mode_skip_next_text_object_intercept = true; // Skip the current keystroke
     vim.status_label = Some("Select inside object: ".into());
     println!("DEBUG: Set match_mode_awaiting_text_object to Some(false)");
     cx.notify();
@@ -648,6 +677,98 @@ pub fn handle_surround_replace_input(
             }
         });
     });
+    
+    cx.notify();
+}
+
+/// Handle surround add character from keymap
+fn helix_surround_add_char(
+    vim: &mut Vim,
+    action: &SurroundAddChar,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    println!("DEBUG: helix_surround_add_char called with char='{}'", action.char);
+    
+    // Clear the awaiting state
+    vim.match_mode_awaiting_surround_add = false;
+    vim.status_label = None;
+    
+    // Call the existing handler
+    handle_surround_add_input(vim, action.char, window, cx);
+}
+
+/// Handle surround delete character from keymap
+fn helix_surround_delete_char(
+    vim: &mut Vim,
+    action: &SurroundDeleteChar,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    println!("DEBUG: helix_surround_delete_char called with char='{}'", action.char);
+    
+    // Clear the awaiting state
+    vim.match_mode_awaiting_surround_delete = false;
+    vim.status_label = None;
+    
+    // Call the existing handler
+    handle_surround_delete_input(vim, action.char, window, cx);
+}
+
+/// Handle surround replace from character from keymap
+fn helix_surround_replace_from_char(
+    vim: &mut Vim,
+    action: &SurroundReplaceFromChar,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    println!("DEBUG: helix_surround_replace_from_char called with char='{}'", action.char);
+    
+    // Store the from character and wait for the to character
+    vim.match_mode_surround_replace_from_char = Some(action.char);
+    vim.match_mode_awaiting_surround_replace_from = false;
+    vim.match_mode_awaiting_surround_replace_to = true;
+    vim.status_label = Some("Replace surround to: ".into());
+    cx.notify();
+}
+
+/// Handle surround replace to character from keymap
+fn helix_surround_replace_to_char(
+    vim: &mut Vim,
+    action: &SurroundReplaceToChar,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    println!("DEBUG: helix_surround_replace_to_char called with char='{}'", action.char);
+    
+    // Clear the awaiting state
+    vim.match_mode_awaiting_surround_replace_to = false;
+    vim.status_label = None;
+    
+    if let Some(from_ch) = vim.match_mode_surround_replace_from_char {
+        // Call the existing handler
+        handle_surround_replace_input(vim, from_ch, action.char, window, cx);
+    }
+    
+    vim.match_mode_surround_replace_from_char = None;
+}
+
+/// Cancel surround operations
+fn helix_cancel_surround(
+    vim: &mut Vim,
+    _: &CancelSurround,
+    _window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    println!("DEBUG: helix_cancel_surround called");
+    
+    // Clear all surround-related state
+    vim.match_mode_awaiting_surround_add = false;
+    vim.match_mode_awaiting_surround_delete = false;
+    vim.match_mode_awaiting_surround_replace_from = false;
+    vim.match_mode_awaiting_surround_replace_to = false;
+    vim.match_mode_surround_replace_from_char = None;
+    vim.status_label = None;
     
     cx.notify();
 } 

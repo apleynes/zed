@@ -816,6 +816,13 @@ impl Vim {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Debug: Log keystrokes for debugging match mode issues
+        if self.match_mode_awaiting_surround_delete {
+            println!("DEBUG: observe_keystrokes called with key: {:?}, action: {:?}, awaiting_surround_delete: {}", 
+                keystroke_event.keystroke.key, 
+                keystroke_event.action.as_ref().map(|a| a.name()),
+                self.match_mode_awaiting_surround_delete);
+        }
         if self.exit_temporary_mode {
             self.exit_temporary_mode = false;
             // Don't switch to insert mode if the action is temporary_normal.
@@ -863,95 +870,13 @@ impl Vim {
             }
         }
         
-        // Handle Helix surround add character input
-        if self.match_mode_awaiting_surround_add {
-            if self.match_mode_skip_next_text_object_intercept {
-                // Skip this keystroke, but clear the flag for the next one
-                self.match_mode_skip_next_text_object_intercept = false;
-                println!("DEBUG: Skipping surround add interception for this keystroke");
-                return;
-            } else if let Some(ch) = keystroke_event.keystroke.key.chars().next() {
-                if ch.is_ascii_graphic() || ch == ' ' {
-                    println!("DEBUG: Intercepted character '{}' for surround add", ch);
-                    crate::helix::match_mode::handle_surround_add_input(self, ch, window, cx);
-                    return;
-                } else {
-                    println!("DEBUG: Ignoring non-graphic character for surround add: {:?}", ch);
-                    self.match_mode_awaiting_surround_add = false;
-                    self.match_mode_skip_next_text_object_intercept = false;
-                    self.status_label = None;
-                }
-            }
-        }
+        // Note: Surround add operations now handled by keymap contexts instead of keystroke interception
         
-        // Handle Helix surround delete character input
-        if self.match_mode_awaiting_surround_delete {
-            println!("DEBUG: In surround delete interception block");
-            if self.match_mode_skip_next_text_object_intercept {
-                // Skip this keystroke, but clear the flag for the next one
-                self.match_mode_skip_next_text_object_intercept = false;
-                println!("DEBUG: Skipping surround delete interception for this keystroke");
-                return;
-            } else if let Some(ch) = keystroke_event.keystroke.key.chars().next() {
-                println!("DEBUG: Found character '{}' in keystroke", ch);
-                if ch.is_ascii_graphic() || ch == ' ' {
-                    println!("DEBUG: Intercepted character '{}' for surround delete", ch);
-                    crate::helix::match_mode::handle_surround_delete_input(self, ch, window, cx);
-                    return;
-                } else {
-                    println!("DEBUG: Ignoring non-graphic character for surround delete: {:?}", ch);
-                    self.match_mode_awaiting_surround_delete = false;
-                    self.match_mode_skip_next_text_object_intercept = false;
-                    self.status_label = None;
-                }
-            } else {
-                println!("DEBUG: No character found in keystroke for surround delete");
-            }
-        }
+        // Note: Surround delete operations now handled by keymap contexts instead of keystroke interception
         
-        // Handle Helix surround replace character input
-        if self.match_mode_awaiting_surround_replace_from {
-            if self.match_mode_skip_next_text_object_intercept {
-                // Skip this keystroke, but clear the flag for the next one
-                self.match_mode_skip_next_text_object_intercept = false;
-                println!("DEBUG: Skipping surround replace from interception for this keystroke");
-                return;
-            } else if let Some(ch) = keystroke_event.keystroke.key.chars().next() {
-                if ch.is_ascii_graphic() || ch == ' ' {
-                    println!("DEBUG: Intercepted character '{}' for surround replace from", ch);
-                    // Store the from character and wait for the to character
-                    self.match_mode_surround_replace_from_char = Some(ch);
-                    self.match_mode_awaiting_surround_replace_from = false;
-                    self.match_mode_awaiting_surround_replace_to = true;
-                    self.status_label = Some("Replace surround to: ".into());
-                    cx.notify();
-                    return;
-                } else {
-                    println!("DEBUG: Ignoring non-graphic character for surround replace from: {:?}", ch);
-                    self.match_mode_awaiting_surround_replace_from = false;
-                    self.match_mode_skip_next_text_object_intercept = false;
-                    self.status_label = None;
-                }
-            }
-        }
+        // Note: Surround replace from operations now handled by keymap contexts instead of keystroke interception
         
-        // Handle Helix surround replace to character input
-        if self.match_mode_awaiting_surround_replace_to {
-            if let Some(ch) = keystroke_event.keystroke.key.chars().next() {
-                if ch.is_ascii_graphic() || ch == ' ' {
-                    println!("DEBUG: Intercepted character '{}' for surround replace to", ch);
-                    if let Some(from_ch) = self.match_mode_surround_replace_from_char {
-                        crate::helix::match_mode::handle_surround_replace_input(self, from_ch, ch, window, cx);
-                    }
-                    return;
-                } else {
-                    println!("DEBUG: Ignoring non-graphic character for surround replace to: {:?}", ch);
-                    self.match_mode_awaiting_surround_replace_to = false;
-                    self.match_mode_surround_replace_from_char = None;
-                    self.status_label = None;
-                }
-            }
-        }
+        // Note: Surround replace to operations now handled by keymap contexts instead of keystroke interception
         
         if let Some(action) = keystroke_event.action.as_ref() {
             // Keystroke is handled by the vim system, so continue forward
@@ -1312,6 +1237,24 @@ impl Vim {
                 context.add("helix_awaiting_text_object_inside");
                 println!("DEBUG: Added helix_awaiting_text_object_inside context");
             }
+        }
+        
+        // Add context for Helix surround operation awaiting states
+        if self.match_mode_awaiting_surround_add {
+            context.add("helix_awaiting_surround_add");
+            println!("DEBUG: Added helix_awaiting_surround_add context");
+        }
+        if self.match_mode_awaiting_surround_delete {
+            context.add("helix_awaiting_surround_delete");
+            println!("DEBUG: Added helix_awaiting_surround_delete context");
+        }
+        if self.match_mode_awaiting_surround_replace_from {
+            context.add("helix_awaiting_surround_replace_from");
+            println!("DEBUG: Added helix_awaiting_surround_replace_from context");
+        }
+        if self.match_mode_awaiting_surround_replace_to {
+            context.add("helix_awaiting_surround_replace_to");
+            println!("DEBUG: Added helix_awaiting_surround_replace_to context");
         }
         
         context.set("vim_mode", mode);

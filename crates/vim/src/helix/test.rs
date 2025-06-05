@@ -783,13 +783,9 @@ async fn test_match_mode_surround_delete_brackets_only(cx: &mut gpui::TestAppCon
         }
     });
     
-    // Trigger the surround delete operation
-    cx.simulate_keystrokes("m d");
-    println!("After 'm d': {}", cx.editor_state());
-    
-    // Now try the bracket character
-    cx.simulate_keystrokes("[");
-    println!("After '[': {}", cx.editor_state());
+    // Test with square brackets to see the difference
+    cx.simulate_keystrokes("m d [");
+    println!("After 'm d [': {}", cx.editor_state());
     
     cx.assert_state("delete nested ˇdelimiters: \"this\" will delete the nearest", Mode::HelixNormal);
     

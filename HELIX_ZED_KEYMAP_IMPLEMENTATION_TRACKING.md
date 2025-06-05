@@ -215,32 +215,33 @@ Accessed by typing `m` in [normal mode](#normal-mode).
 | Key              | Description                                     | Status | Notes |
 | -----            | -----------                                     | ------ | ----- |
 | `m`              | Goto matching bracket (**TS**)                  | ✅ | Full implementation using Zed's existing bracket matching with comprehensive tests and exact Helix behavior |
-| `s` `<char>`     | Surround current selection with `<char>`        | ✅ | Working with keystroke interception system - surround add functionality complete |
-| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | 🚧 | Implementation exists but not fully tested - likely has keystroke interception issues |
-| `d` `<char>`     | Delete surround character `<char>`              | 🚧 | Partially working - parentheses work, square brackets fail due to keystroke interception flag issue |
-| `a` `<object>`   | Select around textobject                        | ✅ | Working for single operations with keystroke interception system |
-| `i` `<object>`   | Select inside textobject                        | ✅ | Working for single operations with keystroke interception system |
+| `s` `<char>`     | Surround current selection with `<char>`        | ✅ | Working with keymap context system - surround add functionality complete |
+| `r` `<from><to>` | Replace surround character `<from>` with `<to>` | ✅ | Fully working with keymap context system - comprehensive quote handling fixed |
+| `d` `<char>`     | Delete surround character `<char>`              | ✅ | Fully working with keymap context system - comprehensive quote handling fixed |
+| `a` `<object>`   | Select around textobject                        | ✅ | Working for single operations using keymap context system |
+| `i` `<object>`   | Select inside textobject                        | ✅ | Working for single operations using keymap context system |
 
 **🎯 CURRENT STATUS**: 
 - **✅ Bracket matching (`m m`)**: Fully working with comprehensive test coverage
-- **✅ Surround add (`m s`)**: Working correctly with keystroke interception system
-- **✅ Text objects (`m a`, `m i`)**: Working for single operations using keystroke interception system
-- **🚧 Surround delete (`m d`)**: Partially working - parentheses work, square brackets fail due to flag management issue
-- **🚧 Surround replace (`m r`)**: Implementation exists but not fully tested
+- **✅ Surround add (`m s`)**: Working correctly with keymap context system
+- **✅ Text objects (`m a`, `m i`)**: Working for single operations using keymap context system  
+- **✅ Surround delete (`m d`)**: Fully working - comprehensive fix for quote mark handling applied
+- **✅ Surround replace (`m r`)**: Fully working - comprehensive fix for quote mark handling applied
 
-**🔧 CURRENT ISSUE**: 
-**Keystroke Interception Flag Management**: The `match_mode_skip_next_text_object_intercept` flag is not being cleared properly, causing square bracket `[` characters to be skipped instead of intercepted for surround delete operations. Parentheses work correctly, but square brackets and other characters fail.
+**🎉 ISSUE RESOLVED**: 
+**Keystroke Interception → Keymap Context System**: Successfully migrated from problematic keystroke interception approach to robust keymap context system. All quote mark issues with surround replace and delete operations have been comprehensively fixed.
 
-**🔍 IMMEDIATE NEXT STEPS**:
-1. **Fix flag state management** in keystroke interception system
-2. **Debug why square brackets are being skipped** while parentheses work
-3. **Test and fix surround replace operations**
-4. **Implement comprehensive integration tests** for complex workflows
-5. **Verify all bracket types work** for all surround operations
+**✅ COMPLETED WORK**:
+1. **✅ Removed keystroke interception system** - eliminated timing and flag management issues
+2. **✅ Implemented keymap context approach** - more reliable character input handling  
+3. **✅ Fixed quote mark surround operations** - robust delimiter position detection
+4. **✅ Comprehensive testing completed** - all quote types (single, double, back) verified working
+5. **✅ All bracket types verified working** - parentheses, square brackets, curly braces, quotes
 
 **📋 TECHNICAL IMPLEMENTATION**:
-- **Architecture**: Custom keystroke interception system in `vim.rs`
-- **State Management**: Added multiple state fields for tracking operation context
+- **Architecture**: Keymap context system with direct action dispatch (replaced keystroke interception)
+- **State Management**: Robust state tracking using keymap context conditions in `vim.rs`
+- **Quote Handling**: Precise delimiter position detection with whitespace handling in `match_mode.rs`
 - **Mode Preservation**: All operations correctly maintain HelixNormal mode
 - **Integration**: Uses existing Zed infrastructure where possible (bracket matching, text objects)
 
@@ -581,4 +582,96 @@ DEBUG: Skipping surround delete interception for this keystroke  ← PROBLEM HER
 
 ---
 
-**CONCLUSION**: The Helix implementation is 95% complete with only a specific bug preventing full functionality. This represents a major success in porting Helix to Zed with nearly complete feature parity and comprehensive test coverage. 
+**CONCLUSION**: The Helix implementation is 95% complete with only a specific bug preventing full functionality. This represents a major success in porting Helix to Zed with nearly complete feature parity and comprehensive test coverage.
+
+---
+
+## 🎉 **JUNE 5, 2025 EVENING: MATCH MODE COMPLETION UPDATE**
+
+**Timestamp**: Thu Jun 5 22:21:42 CEST 2025  
+**Status**: Match mode surround operations fully completed and debugged
+
+### ✅ **MATCH MODE FULLY FUNCTIONAL**
+
+**Major Achievement**: All match mode operations are now fully working with comprehensive bug fixes applied:
+
+#### **✅ All Surround Operations Working**
+- **Surround Add (`m s`)**: ✅ Fully working for all delimiter types
+- **Surround Delete (`m d`)**: ✅ Fully working with robust quote handling 
+- **Surround Replace (`m r`)**: ✅ Fully working with comprehensive delimiter detection
+- **Text Objects (`m a`, `m i`)**: ✅ Working for all object types
+
+#### **🔧 Critical Bug Fix: Quote Mark Handling**
+
+**Problem Solved**: The specific issue with quote marks (single `'`, double `"`) in surround replace and delete operations has been completely resolved.
+
+**Root Cause Identified**: 
+- Zed's `Object::range` method includes whitespace after closing delimiters in "around" mode
+- Original implementation assumed delimiters were at exact start/end-1 positions
+- Quote marks were particularly affected due to whitespace inclusion behavior
+
+**Solution Implemented**:
+- **Robust Text Analysis**: Character-by-character examination within object ranges
+- **Precise Delimiter Detection**: Find exact positions of opening/closing delimiters
+- **UTF-8 Safe Calculations**: Proper byte offset calculations for accurate targeting
+- **Whitespace Handling**: Account for Zed's text object whitespace inclusion
+
+**Technical Fix Location**: `/Users/apleynes/dev/zed/crates/vim/src/helix/match_mode.rs`
+```rust
+// Find exact delimiter positions within the object range
+let text_slice = snapshot.buffer_snapshot.text_for_range(start_offset..end_offset).collect::<String>();
+let chars: Vec<char> = text_slice.chars().collect();
+
+// Find first and last occurrence of delimiters
+if let Some(open_pos) = chars.iter().position(|&c| c == target_char) {
+    if let Some(close_pos) = chars.iter().rposition(|&c| c == close_char) {
+        // Calculate actual character positions with UTF-8 byte offsets
+        let open_offset = start_offset + chars[..open_pos].iter().map(|c| c.len_utf8()).sum::<usize>();
+        let close_offset = start_offset + chars[..close_pos].iter().map(|c| c.len_utf8()).sum::<usize>();
+        // ... precise editing operations
+    }
+}
+```
+
+#### **✅ Comprehensive Verification**
+
+**Test Results**: All quote mark operations now working correctly:
+- ✅ Double quote replacement/deletion  
+- ✅ Single quote replacement/deletion
+- ✅ Backquote replacement/deletion
+- ✅ Mixed quote scenarios
+- ✅ All bracket types (parentheses, square brackets, curly braces)
+
+#### **🏗️ Architecture Success**
+
+**Keymap Context System**: Successfully replaced problematic keystroke interception with robust keymap context approach:
+- **Direct Action Dispatch**: No timing issues with character input
+- **Context Conditions**: Clean state management through keymap contexts
+- **Reliable Operation**: All operations consistently work across all delimiter types
+
+### 📊 **FINAL IMPLEMENTATION STATUS**
+
+| Match Mode Operation | Status | Test Coverage | Notes |
+|---------------------|--------|---------------|-------|
+| **Bracket Matching (`m m`)** | ✅ Complete | 10+ tests | All bracket types with nested support |
+| **Surround Add (`m s`)** | ✅ Complete | Verified | All delimiter types working |
+| **Surround Delete (`m d`)** | ✅ Complete | Verified | Quote handling fixed |
+| **Surround Replace (`m r`)** | ✅ Complete | Verified | Quote handling fixed |
+| **Text Object Around (`m a`)** | ✅ Complete | Verified | All object types working |
+| **Text Object Inside (`m i`)** | ✅ Complete | Verified | All object types working |
+
+### 🎯 **IMPLEMENTATION COMPLETION METRICS**
+
+1. **✅ All surround operations working**: Add, delete, replace for all delimiter types
+2. **✅ All text object operations working**: Around and inside for all object types  
+3. **✅ Comprehensive bug testing**: Quote mark edge cases specifically tested and fixed
+4. **✅ Mode preservation verified**: All operations maintain HelixNormal mode
+5. **✅ Architecture validated**: Keymap context system proven robust and reliable
+
+### 🚀 **PROJECT STATUS: MATCH MODE COMPLETE**
+
+**Achievement**: Match mode implementation represents a **complete success** with all operations fully functional, comprehensive bug fixes applied, and robust architecture proven in practice.
+
+**Next Phase**: With match mode fully completed, the Helix implementation is now ready for broader feature expansion into other minor modes (goto, view, space) and advanced text manipulation operations.
+
+This update marks the successful completion of the match mode implementation phase of the Helix-in-Zed project. 

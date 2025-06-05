@@ -458,6 +458,7 @@ async fn test_match_mode_surround_replace(cx: &mut gpui::TestAppContext) {
     println!("✅ All surround replace tests passed!");
 }
 
+
 #[gpui::test]
 async fn test_match_mode_surround_replace_direct(cx: &mut gpui::TestAppContext) {
     let mut cx = VimTestContext::new(cx, true).await;

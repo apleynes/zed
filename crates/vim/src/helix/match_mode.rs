@@ -545,19 +545,67 @@ pub fn handle_surround_delete_input(
                     // So start_point should be at the opening bracket and end_point should be after the closing bracket
                     // We need to delete exactly the first and last characters of this range
                     
-                    // Delete the last character (closing bracket)
-                    let close_start_point = language::Point::new(end_point.row, end_point.column.saturating_sub(1));
-                    let close_start_anchor = snapshot.buffer_snapshot.anchor_before(close_start_point);
-                    let close_end_anchor = snapshot.buffer_snapshot.anchor_after(end_point);
-                    edits.push((close_start_anchor..close_end_anchor, String::new()));
+                    // The text object range might include whitespace with delimiters.
+                    // We need to find the actual delimiter positions within this range.
+                    let text_slice = snapshot.buffer_snapshot.text_for_range(start_offset..end_offset).collect::<String>();
+                    let chars: Vec<char> = text_slice.chars().collect();
                     
-                    // Delete the first character (opening bracket)
-                    let open_end_point = language::Point::new(start_point.row, start_point.column + 1);
-                    let open_start_anchor = snapshot.buffer_snapshot.anchor_before(start_point);
-                    let open_end_anchor = snapshot.buffer_snapshot.anchor_after(open_end_point);
-                    edits.push((open_start_anchor..open_end_anchor, String::new()));
                     
-                    println!("DEBUG: Added {} edits for deletion", edits.len());
+                    // Find the target delimiter character
+                    let target_char = match object {
+                        Object::Parentheses => '(',
+                        Object::SquareBrackets => '[',
+                        Object::CurlyBrackets => '{',
+                        Object::AngleBrackets => '<',
+                        Object::DoubleQuotes => '"',
+                        Object::Quotes => '\'',
+                        Object::BackQuotes => '`',
+                        _ => {
+                            println!("DEBUG: Unsupported object type for surround delete: {:?}", object);
+                            continue;
+                        }
+                    };
+                    
+                    // Get the closing delimiter character
+                    let close_char = match object {
+                        Object::Parentheses => ')',
+                        Object::SquareBrackets => ']',
+                        Object::CurlyBrackets => '}',
+                        Object::AngleBrackets => '>',
+                        Object::DoubleQuotes | Object::Quotes | Object::BackQuotes => target_char,
+                        _ => continue,
+                    };
+                    
+                    // Find the first occurrence of opening delimiter
+                    if let Some(open_pos) = chars.iter().position(|&c| c == target_char) {
+                        // Find the last occurrence of closing delimiter
+                        if let Some(close_pos) = chars.iter().rposition(|&c| c == close_char) {
+                            if open_pos < close_pos || (open_pos == close_pos && target_char == close_char) {
+                                // Calculate the actual character positions in the buffer
+                                let open_offset = start_offset + chars[..open_pos].iter().map(|c| c.len_utf8()).sum::<usize>();
+                                let close_offset = start_offset + chars[..close_pos].iter().map(|c| c.len_utf8()).sum::<usize>();
+                                
+                                let open_point = snapshot.buffer_snapshot.offset_to_point(open_offset);
+                                let close_point = snapshot.buffer_snapshot.offset_to_point(close_offset);
+                                
+                                // Delete closing delimiter first (to maintain positions)
+                                let close_end_offset = close_offset + close_char.len_utf8();
+                                let close_end_point = snapshot.buffer_snapshot.offset_to_point(close_end_offset);
+                                let close_start_anchor = snapshot.buffer_snapshot.anchor_before(close_point);
+                                let close_end_anchor = snapshot.buffer_snapshot.anchor_before(close_end_point);
+                                edits.push((close_start_anchor..close_end_anchor, String::new()));
+                                
+                                // Delete opening delimiter
+                                let open_end_offset = open_offset + target_char.len_utf8();
+                                let open_end_point = snapshot.buffer_snapshot.offset_to_point(open_end_offset);
+                                let open_start_anchor = snapshot.buffer_snapshot.anchor_before(open_point);
+                                let open_end_anchor = snapshot.buffer_snapshot.anchor_before(open_end_point);
+                                edits.push((open_start_anchor..open_end_anchor, String::new()));
+                                
+                            }
+                        }
+                    }
+                    
                 } else {
                     println!("DEBUG: No surrounding range found for {:?}", object);
                 }
@@ -660,19 +708,63 @@ pub fn handle_surround_replace_input(
                     let start_point = range.start.to_point(&snapshot.display_snapshot);
                     let end_point = range.end.to_point(&snapshot.display_snapshot);
                     
-                    // Replace closing character first (to maintain positions)  
-                    // The closing character is at end_point.column - 1
-                    let close_start_point = language::Point::new(end_point.row, end_point.column.saturating_sub(1));
-                    let close_start_anchor = snapshot.buffer_snapshot.anchor_before(close_start_point);
-                    let close_end_anchor = snapshot.buffer_snapshot.anchor_after(end_point);
-                    edits.push((close_start_anchor..close_end_anchor, new_close_char.to_string()));
+                    let start_offset = start_point.to_offset(&snapshot.buffer_snapshot);
+                    let end_offset = end_point.to_offset(&snapshot.buffer_snapshot);
                     
-                    // Replace opening character
-                    // The opening character is from start_point to start_point.column + 1
-                    let open_end_point = language::Point::new(start_point.row, start_point.column + 1);
-                    let open_start_anchor = snapshot.buffer_snapshot.anchor_before(start_point);
-                    let open_end_anchor = snapshot.buffer_snapshot.anchor_after(open_end_point);
-                    edits.push((open_start_anchor..open_end_anchor, new_open_char.to_string()));
+                    // Get the text in the range to find exact delimiter positions
+                    let text_slice = snapshot.buffer_snapshot.text_for_range(start_offset..end_offset).collect::<String>();
+                    let chars: Vec<char> = text_slice.chars().collect();
+                    
+                    // Find the target delimiter character
+                    let target_char = match from_object {
+                        Object::Parentheses => '(',
+                        Object::SquareBrackets => '[',
+                        Object::CurlyBrackets => '{',
+                        Object::AngleBrackets => '<',
+                        Object::DoubleQuotes => '"',
+                        Object::Quotes => '\'',
+                        Object::BackQuotes => '`',
+                        _ => continue,
+                    };
+                    
+                    // Get the closing delimiter character
+                    let close_char = match from_object {
+                        Object::Parentheses => ')',
+                        Object::SquareBrackets => ']',
+                        Object::CurlyBrackets => '}',
+                        Object::AngleBrackets => '>',
+                        Object::DoubleQuotes | Object::Quotes | Object::BackQuotes => target_char,
+                        _ => continue,
+                    };
+                    
+                    // Find the first occurrence of opening delimiter
+                    if let Some(open_pos) = chars.iter().position(|&c| c == target_char) {
+                        // Find the last occurrence of closing delimiter
+                        if let Some(close_pos) = chars.iter().rposition(|&c| c == close_char) {
+                            if open_pos < close_pos || (open_pos == close_pos && target_char == close_char) {
+                                // Calculate the actual character positions in the buffer
+                                let open_offset = start_offset + chars[..open_pos].iter().map(|c| c.len_utf8()).sum::<usize>();
+                                let close_offset = start_offset + chars[..close_pos].iter().map(|c| c.len_utf8()).sum::<usize>();
+                                
+                                let open_point = snapshot.buffer_snapshot.offset_to_point(open_offset);
+                                let close_point = snapshot.buffer_snapshot.offset_to_point(close_offset);
+                                
+                                // Replace closing delimiter first (to maintain positions)
+                                let close_end_offset = close_offset + close_char.len_utf8();
+                                let close_end_point = snapshot.buffer_snapshot.offset_to_point(close_end_offset);
+                                let close_start_anchor = snapshot.buffer_snapshot.anchor_before(close_point);
+                                let close_end_anchor = snapshot.buffer_snapshot.anchor_before(close_end_point);
+                                edits.push((close_start_anchor..close_end_anchor, new_close_char.to_string()));
+                                
+                                // Replace opening delimiter
+                                let open_end_offset = open_offset + target_char.len_utf8();
+                                let open_end_point = snapshot.buffer_snapshot.offset_to_point(open_end_offset);
+                                let open_start_anchor = snapshot.buffer_snapshot.anchor_before(open_point);
+                                let open_end_anchor = snapshot.buffer_snapshot.anchor_before(open_end_point);
+                                edits.push((open_start_anchor..open_end_anchor, new_open_char.to_string()));
+                            }
+                        }
+                    }
                 }
             }
             

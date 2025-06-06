@@ -48,6 +48,7 @@ use theme::ThemeSettings;
 use ui::{IntoElement, SharedString, px};
 use vim_mode_setting::VimModeSetting;
 use workspace::{self, Pane, Workspace};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::state::ReplayableAction;
 
@@ -355,6 +356,7 @@ pub(crate) struct Vim {
     match_mode_awaiting_surround_replace_from: bool,
     match_mode_awaiting_surround_replace_to: bool,
     match_mode_surround_replace_from_char: Option<char>,
+    
 
     _subscriptions: Vec<Subscription>,
 }
@@ -417,6 +419,7 @@ impl Vim {
             match_mode_awaiting_surround_replace_from: false,
             match_mode_awaiting_surround_replace_to: false,
             match_mode_surround_replace_from_char: None,
+            
 
             editor: editor.downgrade(),
             _subscriptions: vec![
@@ -822,13 +825,6 @@ impl Vim {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Debug: Log keystrokes for debugging match mode issues
-        if self.match_mode_awaiting_surround_delete {
-            println!("DEBUG: observe_keystrokes called with key: {:?}, action: {:?}, awaiting_surround_delete: {}", 
-                keystroke_event.keystroke.key, 
-                keystroke_event.action.as_ref().map(|a| a.name()),
-                self.match_mode_awaiting_surround_delete);
-        }
         if self.exit_temporary_mode {
             self.exit_temporary_mode = false;
             // Don't switch to insert mode if the action is temporary_normal.
@@ -1177,7 +1173,6 @@ impl Vim {
     }
 
     pub fn extend_key_context(&self, context: &mut KeyContext, cx: &App) {
-        println!("DEBUG: extend_key_context called, match_mode_awaiting_text_object: {:?}", self.match_mode_awaiting_text_object);
         let mut mode = match self.mode {
             Mode::Normal => "normal",
             Mode::Visual | Mode::VisualLine | Mode::VisualBlock => "visual",
@@ -1218,31 +1213,23 @@ impl Vim {
         if let Some(around) = self.match_mode_awaiting_text_object {
             if around {
                 context.add("helix_awaiting_text_object");
-                println!("DEBUG: Added helix_awaiting_text_object context");
             } else {
                 context.add("helix_awaiting_text_object_inside");
-                println!("DEBUG: Added helix_awaiting_text_object_inside context");
             }
-        } else {
-            println!("DEBUG: match_mode_awaiting_text_object is None");
         }
         
         // Add context for Helix surround operation awaiting states
         if self.match_mode_awaiting_surround_add {
             context.add("helix_awaiting_surround_add");
-            println!("DEBUG: Added helix_awaiting_surround_add context");
         }
         if self.match_mode_awaiting_surround_delete {
             context.add("helix_awaiting_surround_delete");
-            println!("DEBUG: Added helix_awaiting_surround_delete context");
         }
         if self.match_mode_awaiting_surround_replace_from {
             context.add("helix_awaiting_surround_replace_from");
-            println!("DEBUG: Added helix_awaiting_surround_replace_from context");
         }
         if self.match_mode_awaiting_surround_replace_to {
             context.add("helix_awaiting_surround_replace_to");
-            println!("DEBUG: Added helix_awaiting_surround_replace_to context");
         }
         
         context.set("vim_mode", mode);
@@ -1625,6 +1612,7 @@ impl Vim {
 
         // Note: Text object input now handled by keymap contexts instead of input_ignored
 
+
         // Handle match mode input
         if match_mode::handle_match_mode_input(self, &text, window, cx) {
             return;
@@ -1725,6 +1713,13 @@ impl Vim {
                 Mode::Normal => self.normal_replace(text, window, cx),
                 Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
                     self.visual_replace(text, window, cx)
+                }
+                _ => self.clear_operator(window, cx),
+            },
+            Some(Operator::HelixReplace) => match self.mode {
+                Mode::HelixNormal | Mode::HelixSelect => {
+                    self.handle_helix_replace_input(&text, window, cx);
+                    self.clear_operator(window, cx);
                 }
                 _ => self.clear_operator(window, cx),
             },
@@ -1834,6 +1829,55 @@ impl Vim {
             editor.set_inline_completions_hidden_for_vim_mode(hide_inline_completions, window, cx);
         });
         cx.notify()
+    }
+    
+    pub fn handle_helix_replace_input(
+        &mut self,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        
+        // Get the replacement character
+        let replacement_char = text.chars().next().unwrap_or_default();
+        if replacement_char == '\0' {
+            return;
+        }
+        
+        // Perform the replacement based on Helix semantics
+        self.update_editor(window, cx, |_, editor, _window, cx| {
+            editor.transact(_window, cx, |editor, _window, cx| {
+                let selections = editor.selections.all_adjusted(cx);
+                let buffer = editor.buffer().read(cx).snapshot(cx);
+                let mut edits = Vec::new();
+                
+                // For each selection, replace all characters with the replacement character
+                for selection in selections.iter() {
+                    if !selection.is_empty() {
+                        let start_offset = buffer.point_to_offset(selection.start);
+                        let end_offset = buffer.point_to_offset(selection.end);
+                        
+                        // Get the text in the selection to count graphemes
+                        let selected_text = buffer.text_for_range(start_offset..end_offset).collect::<String>();
+                        let grapheme_count = selected_text.graphemes(true).count();
+                        
+                        // Create replacement text with the same number of characters
+                        let replacement_text = replacement_char.to_string().repeat(grapheme_count);
+                        
+                        let start_anchor = buffer.anchor_before(selection.start);
+                        let end_anchor = buffer.anchor_before(selection.end);
+                        
+                        edits.push((start_anchor..end_anchor, replacement_text));
+                    }
+                }
+                
+                if !edits.is_empty() {
+                    editor.edit(edits, cx);
+                }
+            });
+        });
+        
+        cx.notify();
     }
 }
 

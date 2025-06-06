@@ -389,9 +389,8 @@
       "shift-p": ["vim::Paste", { "before": true }],
       "u": "vim::Undo",
       "ctrl-r": "vim::Redo",
-      "r": "vim::PushReplace",
-      "s": "vim::Substitute",
-      "shift-s": "vim::SubstituteLine",
+      "r": "helix::HelixReplace",
+      "shift-r": "helix::HelixReplaceWithYanked",
       ">": "vim::Indent",
       "<": "vim::Outdent",
       "=": "vim::AutoIndent",
@@ -417,7 +416,6 @@
       "g l": "vim::EndOfLine",
       "g h": "vim::StartOfLine",
       "g s": "vim::FirstNonWhitespace",
-      "g e": "vim::EndOfDocument",
       "g y": "editor::GoToTypeDefinition",
       "g r": "editor::FindAllReferences",
       "g t": "vim::WindowTop",
@@ -530,9 +528,7 @@
       "i": ["helix_mode::ExitSelectMode", "vim::InsertBefore"],
       "a": ["helix_mode::ExitSelectMode", "vim::InsertAfter"],
       "o": ["helix_mode::ExitSelectMode", "vim::InsertLineBelow"],
-      "shift-o": ["helix_mode::ExitSelectMode", "vim::InsertLineAbove"],
-      "shift-k": "regex_selection::KeepSelections",
-      "alt-shift-k": "regex_selection::RemoveSelections"
+      "shift-o": ["helix_mode::ExitSelectMode", "vim::InsertLineAbove"]
     }
   },
   {
@@ -923,7 +919,6 @@
     "context": "MessageEditor > Editor && VimControl",
     "bindings": {
       "enter": "agent::Chat",
-      // TODO: Implement search
       "/": null,
       "?": null,
       "#": null,

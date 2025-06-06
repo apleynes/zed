@@ -138,6 +138,7 @@ pub enum Operator {
     HelixFindBackward {
         after: bool,
     },
+    HelixReplace,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -1034,6 +1035,7 @@ impl Operator {
             Operator::HelixFindForward { before: true } => "ht",
             Operator::HelixFindBackward { after: false } => "hF",
             Operator::HelixFindBackward { after: true } => "hT",
+            Operator::HelixReplace => "hr",
         }
     }
 
@@ -1066,6 +1068,7 @@ impl Operator {
             | Operator::RecordRegister
             | Operator::ReplayRegister
             | Operator::Replace
+            | Operator::HelixReplace
             | Operator::Digraph { .. }
             | Operator::Literal { .. }
             | Operator::ChangeSurrounds { target: Some(_) }
@@ -1096,6 +1099,7 @@ impl Operator {
             Operator::Change
             | Operator::Delete
             | Operator::Replace
+            | Operator::HelixReplace
             | Operator::Indent
             | Operator::Outdent
             | Operator::AutoIndent

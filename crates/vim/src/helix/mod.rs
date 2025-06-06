@@ -72,6 +72,8 @@ actions!(
         // General operations
         SelectAll,
         HelixYank,
+        HelixReplace,
+        HelixReplaceWithYanked,
         
         // Match mode operations
         MatchBrackets,
@@ -119,6 +121,8 @@ pub fn register(editor: &mut Editor, cx: &mut Context<Vim>) {
     // General operations
     Vim::action(editor, cx, helix_select_all);
     Vim::action(editor, cx, helix_yank);
+    Vim::action(editor, cx, helix_replace);
+    Vim::action(editor, cx, helix_replace_with_yanked);
     
     // Note: Match mode operations are registered in match_mode::register()
     // Removed duplicate registrations that were overriding the real implementations
@@ -459,6 +463,56 @@ fn helix_yank(
         
         // Copy to system clipboard
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(final_text));
+    });
+}
+
+fn helix_replace(
+    vim: &mut Vim,
+    _: &HelixReplace,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    // Push the HelixReplace operator - this will cause vim to wait for character input
+    vim.push_operator(crate::state::Operator::HelixReplace, window, cx);
+}
+
+fn helix_replace_with_yanked(
+    vim: &mut Vim,
+    _: &HelixReplaceWithYanked,
+    window: &mut Window,
+    cx: &mut Context<Vim>,
+) {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
+        // Get the yanked text from the clipboard
+        let clipboard_text = cx.read_from_clipboard()
+            .and_then(|item| item.text().map(|t| t.to_string()))
+            .unwrap_or_default();
+        
+        if clipboard_text.is_empty() {
+            return;
+        }
+        
+        editor.transact(_window, cx, |editor, _window, cx| {
+            let selections = editor.selections.all_adjusted(cx);
+            let buffer = editor.buffer().read(cx).snapshot(cx);
+            let mut edits = Vec::new();
+            
+            // Replace each selection with the yanked text
+            for selection in selections.iter() {
+                if !selection.is_empty() {
+                    let start_offset = buffer.point_to_offset(selection.start);
+                    let end_offset = buffer.point_to_offset(selection.end);
+                    let start_anchor = buffer.anchor_before(selection.start);
+                    let end_anchor = buffer.anchor_before(selection.end);
+                    
+                    edits.push((start_anchor..end_anchor, clipboard_text.clone()));
+                }
+            }
+            
+            if !edits.is_empty() {
+                editor.edit(edits, cx);
+            }
+        });
     });
 }
 

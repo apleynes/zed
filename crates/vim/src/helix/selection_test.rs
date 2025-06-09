@@ -4,7 +4,6 @@ use crate::{
         KeepPrimarySelection, RemovePrimarySelection, TrimSelections, AlignSelections,
         CopySelectionOnNextLine, CopySelectionOnPrevLine, RotateSelectionsForward,
         RotateSelectionsBackward, RotateSelectionContentsForward, RotateSelectionContentsBackward,
-        regex_selection::SplitSelectionOnRegex,
     },
     test::VimTestContext,
     Mode,

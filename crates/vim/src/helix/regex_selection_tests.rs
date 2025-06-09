@@ -1,13 +1,12 @@
 use crate::{
     helix::{
         regex_selection::{
-            InteractiveRegexPrompt, SelectRegex, SplitSelectionOnRegex, KeepSelections, RemoveSelections
+            InteractiveRegexPrompt
         },
     },
     test::VimTestContext,
     Mode,
 };
-use editor::Editor;
 use indoc::indoc;
 
 #[gpui::test]
@@ -676,7 +675,7 @@ async fn test_split_selection_tutor_workflow(cx: &mut gpui::TestAppContext) {
 
 #[cfg(test)]
 mod unit_tests {
-    use super::*;
+    // use super::*;
     use regex::Regex;
 
     #[test]
@@ -770,7 +769,7 @@ mod unit_tests {
 
 #[cfg(test)]
 mod performance_tests {
-    use super::*;
+    // use super::*;
     use regex::Regex;
 
     #[test]

@@ -1086,7 +1086,7 @@ impl Render for AgentDiffToolbar {
                     .child(vertical_divider())
                     .when_some(editor.read(cx).workspace(), |this, _workspace| {
                         this.child(
-                            IconButton::new("review", IconName::ListTodo)
+                            IconButton::new("review", IconName::ListX)
                                 .icon_size(IconSize::Small)
                                 .tooltip(Tooltip::for_action_title_in(
                                     "Review All Files",

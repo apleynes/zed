@@ -45,7 +45,7 @@ pub fn validate_primary_index_for_selection_count(selection_count: usize) {
 }
 
 pub fn trim_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let buffer = editor.buffer().read(cx).snapshot(cx);
         let selections = editor.selections.all_adjusted(cx);
         let mut new_ranges = Vec::new();
@@ -100,7 +100,7 @@ pub fn trim_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>
         }
         
         if !new_ranges.is_empty() {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
                 s.select_ranges(new_ranges);
             });
         }
@@ -108,7 +108,7 @@ pub fn trim_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>
 }
 
 pub fn align_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let buffer = editor.buffer().read(cx).snapshot(cx);
         let selections = editor.selections.all_adjusted(cx);
         
@@ -157,7 +157,7 @@ pub fn align_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim
             editor.edit(edits, cx);
             
             // Update selections to include the added spaces
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
                 s.select_ranges(new_ranges);
             });
         }
@@ -165,7 +165,7 @@ pub fn align_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim
 }
 
 pub fn rotate_selections(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>, forward: bool) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let selections = editor.selections.all_adjusted(cx);
         if selections.len() <= 1 {
             set_primary_selection_index(0);
@@ -262,7 +262,7 @@ pub fn rotate_selection_contents(vim: &mut Vim, window: &mut Window, cx: &mut Co
 }
 
 pub fn copy_selection_on_line(vim: &mut Vim, window: &mut Window, cx: &mut Context<Vim>, next_line: bool) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let buffer = editor.buffer().read(cx).snapshot(cx);
         let selections = editor.selections.all_adjusted(cx);
         let mut new_ranges = Vec::new();
@@ -326,7 +326,7 @@ pub fn copy_selection_on_line(vim: &mut Vim, window: &mut Window, cx: &mut Conte
         
         // Update selections with both original and copied selections
         if new_ranges.len() > selections.len() {
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
                 s.select_ranges(new_ranges);
             });
         }

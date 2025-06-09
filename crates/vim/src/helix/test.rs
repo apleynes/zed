@@ -1,6 +1,5 @@
 use indoc::indoc;
 use crate::{state::Mode, test::VimTestContext, helix::*};
-use gpui::TestAppContext;
 
 #[gpui::test]
 async fn test_helix_collapse_selection(cx: &mut gpui::TestAppContext) {
@@ -865,7 +864,7 @@ async fn test_helix_replace_basic(cx: &mut gpui::TestAppContext) {
     
     // Directly test the replace functionality by calling the handler directly
     // This simulates what should happen when 'x' is typed
-    let vim_addon_handle = cx.update_editor(|editor, _window, cx| {
+    let vim_addon_handle = cx.update_editor(|editor, _window, _cx| {
         editor.addon::<crate::VimAddon>().unwrap().entity.clone()
     });
     

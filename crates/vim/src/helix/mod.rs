@@ -9,7 +9,7 @@ pub mod verification;
 pub mod match_mode;
 
 // Re-export commonly used match_mode types for tests
-pub use match_mode::{SelectTextObjectChar, SurroundAddChar, SurroundDeleteChar, SurroundReplaceFromChar, SurroundReplaceToChar};
+// pub use match_mode::{SelectTextObjectChar};
 
 #[cfg(test)]
 mod test;
@@ -42,9 +42,9 @@ use gpui::{Window, Context, actions};
 use crate::{Vim, motion::Motion};
 
 // Additional imports for ported functionality
-use regex::Regex;
-use anyhow;
-use editor::ToOffset;
+// use regex::Regex;
+// use anyhow;
+// use editor::ToOffset;
 
 actions!(
     helix,
@@ -137,13 +137,13 @@ fn helix_collapse_selection(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         // Extract buffer data to calculate cursor positions
         let buffer = editor.buffer().read(cx);
         let snapshot = buffer.snapshot(cx);
         let rope_text = rope::Rope::from(snapshot.text());
         
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
             s.move_with(|map, selection| {
                 // Calculate the proper cursor position using Helix semantics
                 let cursor_pos = if selection.is_empty() {
@@ -181,8 +181,8 @@ fn helix_flip_selections(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
+        editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
             s.move_with(|_, selection| {
                 let head = selection.head();
                 let tail = selection.tail();
@@ -199,7 +199,7 @@ fn helix_merge_selections(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let selections = editor.selections.all_adjusted(cx);
         if selections.len() <= 1 {
             return;
@@ -214,7 +214,7 @@ fn helix_merge_selections(
             selections::reset_primary_selection_index();
             
             let merged_range = first.start..last.end;
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
                 s.select_ranges([merged_range]);
             });
         }
@@ -227,7 +227,7 @@ fn helix_merge_consecutive_selections(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let selections = editor.selections.all_adjusted(cx);
         if selections.len() <= 1 {
             return;
@@ -270,7 +270,7 @@ fn helix_merge_consecutive_selections(
         // Reset primary index since we're creating new selections (like Helix merge_consecutive_ranges)
         selections::reset_primary_selection_index();
         
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
             s.select_ranges(merged_ranges);
         });
     });
@@ -282,13 +282,13 @@ fn helix_keep_primary_selection(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let selections = editor.selections.all_adjusted(cx);
         if let Some(primary) = selections.iter().next() {
             // Reset primary index since we're creating a new single selection (like Helix Selection::single)
             selections::reset_primary_selection_index();
             
-            editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+            editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
                 s.select_ranges([primary.range()]);
             });
         }
@@ -302,7 +302,7 @@ fn helix_remove_primary_selection(
     cx: &mut Context<Vim>,
 ) {
     eprintln!("helix_remove_primary_selection called");
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         let selections = editor.selections.all_adjusted(cx);
         eprintln!("Remove primary: selections.len() = {}", selections.len());
         if selections.len() <= 1 {
@@ -344,7 +344,7 @@ fn helix_remove_primary_selection(
             selections::set_primary_selection_index(0);
         }
         
-        editor.change_selections(Some(Autoscroll::fit()), window, cx, |s| {
+        editor.change_selections(Some(Autoscroll::fit()), _window, cx, |s| {
             s.select_ranges(remaining);
         });
         
@@ -435,8 +435,8 @@ fn helix_select_all(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
-        editor.select_all(&editor::actions::SelectAll {}, window, cx);
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
+        editor.select_all(&editor::actions::SelectAll {}, _window, cx);
     });
 }
 
@@ -446,7 +446,7 @@ fn helix_yank(
     window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
-    vim.update_editor(window, cx, |_, editor, window, cx| {
+    vim.update_editor(window, cx, |_, editor, _window, cx| {
         // Helix-style copy that doesn't change modes or affect cursor position
         let selections = editor.selections.all_adjusted(cx);
         let buffer = editor.buffer().read(cx).snapshot(cx);
@@ -500,8 +500,8 @@ fn helix_replace_with_yanked(
             // Replace each selection with the yanked text
             for selection in selections.iter() {
                 if !selection.is_empty() {
-                    let start_offset = buffer.point_to_offset(selection.start);
-                    let end_offset = buffer.point_to_offset(selection.end);
+                    let _start_offset = buffer.point_to_offset(selection.start);
+                    let _end_offset = buffer.point_to_offset(selection.end);
                     let start_anchor = buffer.anchor_before(selection.start);
                     let end_anchor = buffer.anchor_before(selection.end);
                     

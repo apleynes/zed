@@ -3,8 +3,8 @@
 //! This module contains test cases directly copied from helix/helix-core/src/movement.rs
 //! to verify that our implementation produces identical results.
 
-use crate::helix::core::*;
-use rope::Rope;
+// use crate::helix::core::*;
+// use rope::Rope;
 
 #[cfg(test)]
 mod verification_tests {

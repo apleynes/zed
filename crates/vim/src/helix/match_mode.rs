@@ -815,7 +815,7 @@ fn helix_surround_delete_char(
 fn helix_surround_replace_from_char(
     vim: &mut Vim,
     action: &SurroundReplaceFromChar,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut Context<Vim>,
 ) {
     println!("DEBUG: helix_surround_replace_from_char called with char='{}'", action.char);

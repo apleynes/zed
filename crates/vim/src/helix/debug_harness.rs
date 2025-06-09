@@ -3,8 +3,8 @@
 //! This module helps identify differences between Helix's ropey::Rope
 //! and Zed's rope::Rope that might affect word movement behavior.
 
-use crate::helix::core::*;
-use rope::Rope as ZedRope;
+// use crate::helix::core::*;
+// use rope::Rope as ZedRope;
 
 #[cfg(test)]
 mod tests {
@@ -135,8 +135,8 @@ mod tests {
         println!("anchor < head: {}", range.anchor < range.head);
         
         // Show what happens in each branch of range preparation
-        let target = WordMotionTarget::PrevWordStart;
-        let is_prev = true;
+        let _target = WordMotionTarget::PrevWordStart;
+        let _is_prev = true;
         
         if range.anchor < range.head {
             println!("Taking 'anchor < head' branch");

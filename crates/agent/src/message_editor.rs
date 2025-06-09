@@ -988,7 +988,7 @@ impl MessageEditor {
                         h_flex()
                             .gap_1()
                             .child(
-                                IconButton::new("review-changes", IconName::ListTodo)
+                                IconButton::new("review-changes", IconName::ListX)
                                     .icon_size(IconSize::Small)
                                     .tooltip({
                                         let focus_handle = focus_handle.clone();

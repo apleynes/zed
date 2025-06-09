@@ -484,7 +484,6 @@ fn is_sub_word_boundary(a: char, b: char, dir: Direction) -> bool {
 }
 
 /// Find character functions matching Helix's exact implementation
-
 /// Find next character (f command) - inclusive
 pub fn find_next_char(text: &Rope, range: Range, ch: char, count: usize) -> Range {
     find_char_impl(text, range, ch, count, true, crate::helix::core::Direction::Forward)
@@ -866,7 +865,7 @@ mod tests {
         };
         
         // Test the range_to_target step
-        let result_range = range_to_target(&text, start_range, WordMotionTarget::NextWordStart);
+        let _result_range = range_to_target(&text, start_range, WordMotionTarget::NextWordStart);
         
         // Test the full function
         let full_result = move_next_word_start(&text, input_range, 1);
@@ -993,7 +992,7 @@ mod tests {
         let mut range = Range::new(11, 11); // Start at 'o' in "one-of-a-kind"
         
         // Let's see what actually happens with successive w movements
-        for i in 1..=7 {
+        for _i in 1..=7 {
             range = move_next_word_start(&text, range, 1);
         }
         
@@ -1016,7 +1015,7 @@ mod tests {
             ('\n', CharCategory::Eol, "newline"),
         ];
         
-        for (ch, expected_category, description) in test_chars {
+        for (ch, expected_category, _description) in test_chars {
             let actual_category = categorize_char(ch);
             assert_eq!(actual_category, expected_category);
         }
@@ -1031,7 +1030,7 @@ mod tests {
             ('-', '.', false, "punctuation to punctuation"),
         ];
         
-        for (a, b, expected_boundary, description) in boundary_tests {
+        for (a, b, expected_boundary, _description) in boundary_tests {
             let is_boundary = is_word_boundary(a, b);
             assert_eq!(is_boundary, expected_boundary);
         }
@@ -1046,7 +1045,7 @@ mod tests {
             (' ', '-', true, "whitespace to punctuation"),
         ];
         
-        for (a, b, expected_boundary, description) in long_boundary_tests {
+        for (a, b, expected_boundary, _description) in long_boundary_tests {
             let is_boundary = is_long_word_boundary(a, b);
             assert_eq!(is_boundary, expected_boundary);
         }

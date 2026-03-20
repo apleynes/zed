@@ -30,7 +30,7 @@ const DEFAULT_UI_TEXT: &str = "Editing file";
 
 /// This is a tool for creating a new file or editing an existing file. For moving or renaming files, you should generally use the `move_path` tool instead.
 ///
-/// BEFORE USING THIS TOOL:
+/// Before using this tool:
 ///
 /// 1. Use the `read_file` tool to understand the file's contents and context
 ///
@@ -91,7 +91,7 @@ pub struct EditFileToolInput {
     ///
     /// When a file already exists or you just created it, prefer editing it as opposed to recreating it from scratch.
     pub mode: EditFileMode,
-    /// XML-formatted edits for direct application.
+    /// XML-formatted edits or full content to write to the file.
     #[serde(default)]
     pub edits: Option<String>,
 }
@@ -408,7 +408,7 @@ impl AgentTool for EditFileTool {
                                     .collect::<Vec<_>>(),
                             );
                             let (events_tx, _events_rx) = futures::channel::mpsc::unbounded();
-                            
+
                             edit_agent.apply_edit_chunks(buffer.clone(), chunks, events_tx, cx).await?;
                         }
                         EditFileMode::Create | EditFileMode::Overwrite => {
@@ -419,12 +419,12 @@ impl AgentTool for EditFileTool {
                             });
                         }
                     }
-                    
+
                     project.update(cx, |project, cx| project.save_buffer(buffer.clone(), cx)).await?;
-                    
+
                     let new_text = buffer.read_with(cx, |buffer, _| buffer.text());
                     let diff = language::unified_diff(&old_text, &new_text);
-                    
+
                     return Ok(EditFileToolOutput::Success {
                         input_path: input.path.clone(),
                         new_text,

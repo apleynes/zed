@@ -75,6 +75,9 @@ pub struct EditFileToolInput {
     ///
     /// When a file already exists or you just created it, prefer editing it as opposed to recreating it from scratch.
     pub mode: EditFileMode,
+    /// XML-formatted edits for direct application.
+    #[serde(default)]
+    pub edits: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -83,6 +86,8 @@ struct EditFileToolPartialInput {
     path: String,
     #[serde(default)]
     display_description: String,
+    #[serde(default)]
+    edits: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -374,6 +379,33 @@ impl AgentTool for EditFileTool {
                     })
                     .await;
 
+                // If direct edits are provided, apply them without making an LLM request
+                if let Some(edits_str) = input.edits.as_ref() {
+                    let chunks = futures::stream::iter(
+                        edits_str
+                            .chars()
+                            .collect::<Vec<_>>()
+                            .chunks(32)
+                            .map(|chunk| Ok::<_, language_model::LanguageModelCompletionError>(chunk.iter().collect::<String>()))
+                            .collect::<Vec<_>>(),
+                    );
+                    let (events_tx, _events_rx) = futures::channel::mpsc::unbounded();
+                    
+                    edit_agent.apply_edit_chunks(buffer.clone(), chunks, events_tx, cx).await?;
+                    
+                    project.update(cx, |project, cx| project.save_buffer(buffer.clone(), cx)).await?;
+                    
+                    let new_text = buffer.read_with(cx, |buffer, _| buffer.text());
+                    let diff = language::unified_diff(&old_text, &new_text);
+                    
+                    return Ok(EditFileToolOutput::Success {
+                        input_path: input.path.clone(),
+                        new_text,
+                        old_text: old_text.clone(),
+                        diff,
+                    });
+                }
+
                 let (output, mut events) = if matches!(input.mode, EditFileMode::Edit) {
                     edit_agent.edit(
                         buffer.clone(),
@@ -660,6 +692,7 @@ mod tests {
                     display_description: "Some edit".into(),
                     path: "root/nonexistent_file.txt".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 };
                 Arc::new(EditFileTool::new(
                     project,
@@ -756,6 +789,7 @@ mod tests {
             display_description: "Some edit".into(),
             path: path.into(),
             mode: mode.clone(),
+            edits: None,
         };
 
         cx.update(|cx| resolve_path(&input, project, cx))
@@ -873,6 +907,7 @@ mod tests {
                     display_description: "Create main function".into(),
                     path: "root/src/main.rs".into(),
                     mode: EditFileMode::Overwrite,
+                        edits: None,
                 };
                 Arc::new(EditFileTool::new(
                     project.clone(),
@@ -936,6 +971,7 @@ mod tests {
                     display_description: "Update main function".into(),
                     path: "root/src/main.rs".into(),
                     mode: EditFileMode::Overwrite,
+                        edits: None,
                 };
                 Arc::new(EditFileTool::new(
                     project.clone(),
@@ -1027,6 +1063,7 @@ mod tests {
                     display_description: "Create main function".into(),
                     path: "root/src/main.rs".into(),
                     mode: EditFileMode::Overwrite,
+                        edits: None,
                 };
                 Arc::new(EditFileTool::new(
                     project.clone(),
@@ -1086,6 +1123,7 @@ mod tests {
                     display_description: "Update main function".into(),
                     path: "root/src/main.rs".into(),
                     mode: EditFileMode::Overwrite,
+                        edits: None,
                 };
                 Arc::new(EditFileTool::new(
                     project.clone(),
@@ -1160,6 +1198,7 @@ mod tests {
                     display_description: "test 1".into(),
                     path: ".zed/settings.json".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1180,6 +1219,7 @@ mod tests {
                     display_description: "test 2".into(),
                     path: "/etc/hosts".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1197,6 +1237,7 @@ mod tests {
                     display_description: "test 3".into(),
                     path: "root/src/main.rs".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1214,6 +1255,7 @@ mod tests {
                     display_description: "test 4".into(),
                     path: "root/.zed/tasks.json".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1241,6 +1283,7 @@ mod tests {
                     display_description: "test 5.1".into(),
                     path: ".zed/settings.json".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1260,6 +1303,7 @@ mod tests {
                     display_description: "test 5.2".into(),
                     path: "/etc/hosts".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1277,6 +1321,7 @@ mod tests {
                     display_description: "test 5.3".into(),
                     path: "root/src/main.rs".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1300,6 +1345,7 @@ mod tests {
                     display_description: "test 5.4".into(),
                     path: "/etc/hosts".into(),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1355,6 +1401,7 @@ mod tests {
                     display_description: "create through symlink".into(),
                     path: "link/new.txt".into(),
                     mode: EditFileMode::Create,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1436,6 +1483,7 @@ mod tests {
                     display_description: "edit through symlink".into(),
                     path: PathBuf::from("link_to_external/config.txt"),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1507,6 +1555,7 @@ mod tests {
                     display_description: "edit through symlink".into(),
                     path: PathBuf::from("link_to_external/config.txt"),
                     mode: EditFileMode::Edit,
+                        edits: None,
                 },
                 &stream_tx,
                 cx,
@@ -1589,6 +1638,7 @@ mod tests {
                         display_description: "edit through symlink".into(),
                         path: PathBuf::from("link_to_external/config.txt"),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     },
                     &stream_tx,
                     cx,
@@ -1660,6 +1710,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: path.into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     },
                     &stream_tx,
                     cx,
@@ -1771,6 +1822,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: path.into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     },
                     &stream_tx,
                     cx,
@@ -1863,6 +1915,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: path.into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     },
                     &stream_tx,
                     cx,
@@ -1937,6 +1990,7 @@ mod tests {
                         display_description: "Edit settings".into(),
                         path: "project/.zed/settings.json".into(),
                         mode: mode.clone(),
+                        edits: None,
                     },
                     &stream_tx,
                     cx,
@@ -1953,6 +2007,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: "/outside/file.txt".into(),
                         mode: mode.clone(),
+                        edits: None,
                     },
                     &stream_tx,
                     cx,
@@ -1969,6 +2024,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: "project/normal.txt".into(),
                         mode: mode.clone(),
+                        edits: None,
                     },
                     &stream_tx,
                     cx,
@@ -2100,6 +2156,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: path!("/main.rs").into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     }),
                     stream_tx,
                     cx,
@@ -2130,6 +2187,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: path!("/main.rs").into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     }),
                     stream_tx,
                     cx,
@@ -2158,6 +2216,7 @@ mod tests {
                         display_description: "Edit file".into(),
                         path: path!("/main.rs").into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     }),
                     stream_tx,
                     cx,
@@ -2333,6 +2392,7 @@ mod tests {
                         display_description: "First edit".into(),
                         path: "root/test.txt".into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     }),
                     ToolCallEventStream::test().0,
                     cx,
@@ -2362,6 +2422,7 @@ mod tests {
                         display_description: "Second edit".into(),
                         path: "root/test.txt".into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     }),
                     ToolCallEventStream::test().0,
                     cx,
@@ -2471,6 +2532,7 @@ mod tests {
                         display_description: "Edit after external change".into(),
                         path: "root/test.txt".into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     }),
                     ToolCallEventStream::test().0,
                     cx,
@@ -2571,6 +2633,7 @@ mod tests {
                         display_description: "Edit with dirty buffer".into(),
                         path: "root/test.txt".into(),
                         mode: EditFileMode::Edit,
+                        edits: None,
                     }),
                     ToolCallEventStream::test().0,
                     cx,

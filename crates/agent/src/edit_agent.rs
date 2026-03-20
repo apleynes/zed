@@ -280,7 +280,7 @@ impl EditAgent {
         (output, events_rx)
     }
 
-    async fn apply_edit_chunks(
+    pub async fn apply_edit_chunks(
         &self,
         buffer: Entity<Buffer>,
         edit_chunks: impl 'static + Send + Stream<Item = Result<String, LanguageModelCompletionError>>,

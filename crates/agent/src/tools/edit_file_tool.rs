@@ -2739,4 +2739,309 @@ mod tests {
             path
         );
     }
+
+    #[gpui::test]
+    async fn test_direct_xml_edit(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = project::FakeFs::new(cx.executor());
+        fs.insert_tree(
+            "/root",
+            json!({
+                "test.txt": "original content"
+            }),
+        )
+        .await;
+        let project = Project::test(fs.clone(), [path!("/root").as_ref()], cx).await;
+        let context_server_registry =
+            cx.new(|cx| ContextServerRegistry::new(project.read(cx).context_server_store(), cx));
+        let model = Arc::new(FakeLanguageModel::default());
+        let thread = cx.new(|cx| {
+            Thread::new(
+                project.clone(),
+                cx.new(|_cx| ProjectContext::default()),
+                context_server_registry,
+                Templates::new(),
+                Some(model.clone()),
+                cx,
+            )
+        });
+        let languages = project.read_with(cx, |project, _| project.languages().clone());
+        let action_log = thread.read_with(cx, |thread, _| thread.action_log().clone());
+
+        let read_tool = Arc::new(crate::ReadFileTool::new(project.clone(), action_log, true));
+        let edit_tool = Arc::new(EditFileTool::new(
+            project.clone(),
+            thread.downgrade(),
+            languages,
+            Templates::new(),
+        ));
+
+        // Read the file first
+        cx.update(|cx| {
+            read_tool.clone().run(
+                ToolInput::resolved(crate::ReadFileToolInput {
+                    path: "root/test.txt".to_string(),
+                    start_line: None,
+                    end_line: None,
+                }),
+                ToolCallEventStream::test().0,
+                cx,
+            )
+        })
+        .await
+        .unwrap();
+
+        // Edit using direct XML - no FakeLanguageModel calls needed
+        let edit_result = {
+            let direct_edits = Some(
+                "<old_text>original content</old_text><new_text>modified via direct xml</new_text>".to_string(),
+            );
+            let edit_task = cx.update(|cx| {
+                edit_tool.clone().run(
+                    ToolInput::resolved(EditFileToolInput {
+                        display_description: "Direct XML edit".into(),
+                        path: "root/test.txt".into(),
+                        mode: EditFileMode::Edit,
+                        edits: direct_edits,
+                    }),
+                    ToolCallEventStream::test().0,
+                    cx,
+                )
+            });
+
+            // No need to stream chunks - direct edits apply immediately
+            edit_task.await
+        };
+        assert!(
+            edit_result.is_ok(),
+            "Direct XML edit should succeed, got error: {:?}",
+            edit_result.as_ref().err()
+        );
+
+        // Verify the file was modified
+        let content = fs.load(path!("/root/test.txt").as_ref()).await.unwrap();
+        assert_eq!(
+            content.replace("\r\n", "\n"),
+            "modified via direct xml",
+            "File should contain the new content from direct XML edit"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_direct_create_with_content(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = project::FakeFs::new(cx.executor());
+        fs.insert_tree("/root", json!({})).await;
+        let project = Project::test(fs.clone(), [path!("/root").as_ref()], cx).await;
+        let context_server_registry =
+            cx.new(|cx| ContextServerRegistry::new(project.read(cx).context_server_store(), cx));
+        let model = Arc::new(FakeLanguageModel::default());
+        let thread = cx.new(|cx| {
+            Thread::new(
+                project.clone(),
+                cx.new(|_cx| ProjectContext::default()),
+                context_server_registry,
+                Templates::new(),
+                Some(model.clone()),
+                cx,
+            )
+        });
+        let languages = project.read_with(cx, |project, _| project.languages().clone());
+
+        let edit_tool = Arc::new(EditFileTool::new(
+            project.clone(),
+            thread.downgrade(),
+            languages,
+            Templates::new(),
+        ));
+
+        // Create file using direct content - no FakeLanguageModel calls needed
+        let edit_result = {
+            let direct_content = Some("This is the new file content\nWith multiple lines\n".to_string());
+            let edit_task = cx.update(|cx| {
+                edit_tool.clone().run(
+                    ToolInput::resolved(EditFileToolInput {
+                        display_description: "Create file with direct content".into(),
+                        path: "root/new_file.txt".into(),
+                        mode: EditFileMode::Create,
+                        edits: direct_content,
+                    }),
+                    ToolCallEventStream::test().0,
+                    cx,
+                )
+            });
+
+            edit_task.await
+        };
+        assert!(
+            edit_result.is_ok(),
+            "Direct create should succeed, got error: {:?}",
+            edit_result.as_ref().err()
+        );
+
+        // Verify the file was created with the correct content
+        let content = fs.load(path!("/root/new_file.txt").as_ref()).await.unwrap();
+        assert_eq!(
+            content.replace("\r\n", "\n"),
+            "This is the new file content\nWith multiple lines\n",
+            "File should contain the direct content provided"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_direct_overwrite_with_content(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = project::FakeFs::new(cx.executor());
+        fs.insert_tree(
+            "/root",
+            json!({
+                "existing.txt": "old existing content"
+            }),
+        )
+        .await;
+        let project = Project::test(fs.clone(), [path!("/root").as_ref()], cx).await;
+        let context_server_registry =
+            cx.new(|cx| ContextServerRegistry::new(project.read(cx).context_server_store(), cx));
+        let model = Arc::new(FakeLanguageModel::default());
+        let thread = cx.new(|cx| {
+            Thread::new(
+                project.clone(),
+                cx.new(|_cx| ProjectContext::default()),
+                context_server_registry,
+                Templates::new(),
+                Some(model.clone()),
+                cx,
+            )
+        });
+        let languages = project.read_with(cx, |project, _| project.languages().clone());
+
+        let edit_tool = Arc::new(EditFileTool::new(
+            project.clone(),
+            thread.downgrade(),
+            languages,
+            Templates::new(),
+        ));
+
+        // Overwrite file using direct content - no FakeLanguageModel calls needed
+        let edit_result = {
+            let direct_content = Some("Completely replaced content".to_string());
+            let edit_task = cx.update(|cx| {
+                edit_tool.clone().run(
+                    ToolInput::resolved(EditFileToolInput {
+                        display_description: "Overwrite with direct content".into(),
+                        path: "root/existing.txt".into(),
+                        mode: EditFileMode::Overwrite,
+                        edits: direct_content,
+                    }),
+                    ToolCallEventStream::test().0,
+                    cx,
+                )
+            });
+
+            edit_task.await
+        };
+        assert!(
+            edit_result.is_ok(),
+            "Direct overwrite should succeed, got error: {:?}",
+            edit_result.as_ref().err()
+        );
+
+        // Verify the file was overwritten with the correct content
+        let content = fs.load(path!("/root/existing.txt").as_ref()).await.unwrap();
+        assert_eq!(
+            content.replace("\r\n", "\n"),
+            "Completely replaced content",
+            "File should contain the direct overwrite content"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_direct_xml_edit_with_multiple_edits(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let fs = project::FakeFs::new(cx.executor());
+        fs.insert_tree(
+            "/root",
+            json!({
+                "test.txt": "line 1\nline 2\nline 3\n"
+            }),
+        )
+        .await;
+        let project = Project::test(fs.clone(), [path!("/root").as_ref()], cx).await;
+        let context_server_registry =
+            cx.new(|cx| ContextServerRegistry::new(project.read(cx).context_server_store(), cx));
+        let model = Arc::new(FakeLanguageModel::default());
+        let thread = cx.new(|cx| {
+            Thread::new(
+                project.clone(),
+                cx.new(|_cx| ProjectContext::default()),
+                context_server_registry,
+                Templates::new(),
+                Some(model.clone()),
+                cx,
+            )
+        });
+        let languages = project.read_with(cx, |project, _| project.languages().clone());
+        let action_log = thread.read_with(cx, |thread, _| thread.action_log().clone());
+
+        let read_tool = Arc::new(crate::ReadFileTool::new(project.clone(), action_log, true));
+        let edit_tool = Arc::new(EditFileTool::new(
+            project.clone(),
+            thread.downgrade(),
+            languages,
+            Templates::new(),
+        ));
+
+        // Read the file first
+        cx.update(|cx| {
+            read_tool.clone().run(
+                ToolInput::resolved(crate::ReadFileToolInput {
+                    path: "root/test.txt".to_string(),
+                    start_line: None,
+                    end_line: None,
+                }),
+                ToolCallEventStream::test().0,
+                cx,
+            )
+        })
+        .await
+        .unwrap();
+
+        // Apply multiple edits using direct XML
+        let edit_result = {
+            let direct_edits = Some(
+                "<old_text>line 1</old_text><new_text>modified line 1</new_text><old_text>line 3</old_text><new_text>modified line 3</new_text>".to_string(),
+            );
+            let edit_task = cx.update(|cx| {
+                edit_tool.clone().run(
+                    ToolInput::resolved(EditFileToolInput {
+                        display_description: "Multiple direct XML edits".into(),
+                        path: "root/test.txt".into(),
+                        mode: EditFileMode::Edit,
+                        edits: direct_edits,
+                    }),
+                    ToolCallEventStream::test().0,
+                    cx,
+                )
+            });
+
+            edit_task.await
+        };
+        assert!(
+            edit_result.is_ok(),
+            "Multiple direct XML edits should succeed, got error: {:?}",
+            edit_result.as_ref().err()
+        );
+
+        // Verify the file was modified correctly
+        let content = fs.load(path!("/root/test.txt").as_ref()).await.unwrap();
+        assert_eq!(
+            content.replace("\r\n", "\n"),
+            "modified line 1\nline 2\nmodified line 3\n",
+            "File should contain both modifications from direct XML edits"
+        );
+    }
 }

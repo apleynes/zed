@@ -397,17 +397,28 @@ impl AgentTool for EditFileTool {
 
                 // If direct edits are provided, apply them without making an LLM request
                 if let Some(edits_str) = input.edits.as_ref() {
-                    let chunks = futures::stream::iter(
-                        edits_str
-                            .chars()
-                            .collect::<Vec<_>>()
-                            .chunks(32)
-                            .map(|chunk| Ok::<_, language_model::LanguageModelCompletionError>(chunk.iter().collect::<String>()))
-                            .collect::<Vec<_>>(),
-                    );
-                    let (events_tx, _events_rx) = futures::channel::mpsc::unbounded();
-                    
-                    edit_agent.apply_edit_chunks(buffer.clone(), chunks, events_tx, cx).await?;
+                    match input.mode {
+                        EditFileMode::Edit => {
+                            let chunks = futures::stream::iter(
+                                edits_str
+                                    .chars()
+                                    .collect::<Vec<_>>()
+                                    .chunks(32)
+                                    .map(|chunk| Ok::<_, language_model::LanguageModelCompletionError>(chunk.iter().collect::<String>()))
+                                    .collect::<Vec<_>>(),
+                            );
+                            let (events_tx, _events_rx) = futures::channel::mpsc::unbounded();
+                            
+                            edit_agent.apply_edit_chunks(buffer.clone(), chunks, events_tx, cx).await?;
+                        }
+                        EditFileMode::Create | EditFileMode::Overwrite => {
+                            cx.update(|cx| {
+                                buffer.update(cx, |buffer, cx| {
+                                    buffer.set_text(edits_str.as_str(), cx);
+                                });
+                            });
+                        }
+                    }
                     
                     project.update(cx, |project, cx| project.save_buffer(buffer.clone(), cx)).await?;
                     

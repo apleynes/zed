@@ -493,8 +493,12 @@ impl NativeAgent {
                 })??
                 .await;
             this.update(cx, |this, cx| {
-                if let Some(state) = this.projects.get_mut(&project_id) {
-                    state.project_context = cx.new(|_| project_context);
+                if let Some(state) = this.projects.get(&project_id) {
+                    state
+                        .project_context
+                        .update(cx, |current_project_context, _cx| {
+                            *current_project_context = project_context;
+                        });
                 }
             })?;
         }
@@ -1194,12 +1198,11 @@ impl NativeAgentConnection {
                                     thread.request_tool_call_authorization(tool_call, options, cx)
                                 })??;
                                 cx.background_spawn(async move {
-                                    if let acp::RequestPermissionOutcome::Selected(
-                                        acp::SelectedPermissionOutcome { option_id, .. },
-                                    ) = outcome_task.await
+                                    if let acp_thread::RequestPermissionOutcome::Selected(outcome) =
+                                        outcome_task.await
                                     {
                                         response
-                                            .send(option_id)
+                                            .send(outcome)
                                             .map(|_| anyhow!("authorization receiver was dropped"))
                                             .log_err();
                                     }
@@ -1215,6 +1218,9 @@ impl NativeAgentConnection {
                                 acp_thread.update(cx, |thread, cx| {
                                     thread.update_tool_call(update, cx)
                                 })??;
+                            }
+                            ThreadEvent::Plan(plan) => {
+                                acp_thread.update(cx, |thread, cx| thread.update_plan(plan, cx))?;
                             }
                             ThreadEvent::SubagentSpawned(session_id) => {
                                 acp_thread.update(cx, |thread, cx| {
@@ -2131,10 +2137,15 @@ mod internal_tests {
             .unwrap();
         cx.run_until_parked();
 
+        let thread = agent.read_with(cx, |agent, _cx| {
+            agent.sessions.values().next().unwrap().thread.clone()
+        });
+
         agent.read_with(cx, |agent, cx| {
             let project_id = project.entity_id();
             let state = agent.projects.get(&project_id).unwrap();
-            assert_eq!(state.project_context.read(cx).worktrees, vec![])
+            assert_eq!(state.project_context.read(cx).worktrees, vec![]);
+            assert_eq!(thread.read(cx).project_context().read(cx).worktrees, vec![]);
         });
 
         let worktree = project
@@ -2145,14 +2156,16 @@ mod internal_tests {
         agent.read_with(cx, |agent, cx| {
             let project_id = project.entity_id();
             let state = agent.projects.get(&project_id).unwrap();
+            let expected_worktrees = vec![WorktreeContext {
+                root_name: "a".into(),
+                abs_path: Path::new("/a").into(),
+                rules_file: None,
+            }];
+            assert_eq!(state.project_context.read(cx).worktrees, expected_worktrees);
             assert_eq!(
-                state.project_context.read(cx).worktrees,
-                vec![WorktreeContext {
-                    root_name: "a".into(),
-                    abs_path: Path::new("/a").into(),
-                    rules_file: None
-                }]
-            )
+                thread.read(cx).project_context().read(cx).worktrees,
+                expected_worktrees
+            );
         });
 
         // Creating `/a/.rules` updates the project context.
@@ -2165,18 +2178,20 @@ mod internal_tests {
                 .read(cx)
                 .entry_for_path(rel_path(".rules"))
                 .unwrap();
+            let expected_worktrees = vec![WorktreeContext {
+                root_name: "a".into(),
+                abs_path: Path::new("/a").into(),
+                rules_file: Some(RulesFileContext {
+                    path_in_worktree: rel_path(".rules").into(),
+                    text: "".into(),
+                    project_entry_id: rules_entry.id.to_usize(),
+                }),
+            }];
+            assert_eq!(state.project_context.read(cx).worktrees, expected_worktrees);
             assert_eq!(
-                state.project_context.read(cx).worktrees,
-                vec![WorktreeContext {
-                    root_name: "a".into(),
-                    abs_path: Path::new("/a").into(),
-                    rules_file: Some(RulesFileContext {
-                        path_in_worktree: rel_path(".rules").into(),
-                        text: "".into(),
-                        project_entry_id: rules_entry.id.to_usize()
-                    })
-                }]
-            )
+                thread.read(cx).project_context().read(cx).worktrees,
+                expected_worktrees
+            );
         });
     }
 

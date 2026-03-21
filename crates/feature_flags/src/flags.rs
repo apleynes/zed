@@ -45,6 +45,10 @@ impl FeatureFlag for StreamingEditFileToolFeatureFlag {
     fn enabled_for_staff() -> bool {
         true
     }
+
+    fn enabled_for_all() -> bool {
+        true
+    }
 }
 
 pub struct UpdatePlanToolFeatureFlag;

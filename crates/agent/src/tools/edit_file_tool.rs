@@ -51,6 +51,54 @@ const DEFAULT_UI_TEXT: &str = "Editing file";
 /// </edits>
 /// ```
 ///
+/// - Use `<old_text>` and `<new_text>` tags to replace content
+/// - `<old_text>` must exactly match existing file content, including indentation
+/// - `<old_text>` must come from the actual file, not an outline
+/// - `<old_text>` cannot be empty
+/// - `line` should be a starting line number for the text to be replaced
+/// - Be minimal with replacements:
+///   - For unique lines, include only those lines
+///   - For non-unique lines, include enough context to identify them
+/// - Do not escape quotes, newlines, or other characters within tags
+/// - For multiple occurrences, repeat the same tag pair for each instance
+/// - Edits are sequential - each assumes previous edits are already applied
+/// - Only edit the specified file
+/// - Always close all tags properly
+///
+/// <example>
+/// <edits>
+///
+/// <old_text line=3>
+/// struct User {
+///     name: String,
+///     email: String,
+/// }
+/// </old_text>
+/// <new_text>
+/// struct User {
+///     name: String,
+///     email: String,
+///     active: bool,
+/// }
+/// </new_text>
+///
+/// <old_text line=25>
+///     let user = User {
+///         name: String::from("John"),
+///         email: String::from("john@example.com"),
+///     };
+/// </old_text>
+/// <new_text>
+///     let user = User {
+///         name: String::from("John"),
+///         email: String::from("john@example.com"),
+///         active: true,
+///     };
+/// </new_text>
+///
+/// </edits>
+/// </example>
+///
 /// For mode="create" or mode="overwrite", provide full file content in `edits`.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EditFileToolInput {

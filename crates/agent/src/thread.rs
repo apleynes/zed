@@ -643,7 +643,12 @@ pub trait ThreadEnvironment {
         cx: &mut AsyncApp,
     ) -> Task<Result<Rc<dyn TerminalHandle>>>;
 
-    fn create_subagent(&self, label: String, cx: &mut App) -> Result<Rc<dyn SubagentHandle>>;
+    fn create_subagent(
+        &self,
+        label: String,
+        profile: Option<agent_settings::AgentProfileId>,
+        cx: &mut App,
+    ) -> Result<Rc<dyn SubagentHandle>>;
 
     fn resume_subagent(
         &self,
@@ -982,7 +987,11 @@ impl Thread {
             .embedded_context(true)
     }
 
-    pub fn new_subagent(parent_thread: &Entity<Thread>, cx: &mut Context<Self>) -> Self {
+    pub fn new_subagent(
+        parent_thread: &Entity<Thread>,
+        profile: Option<AgentProfileId>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let project = parent_thread.read(cx).project.clone();
         let project_context = parent_thread.read(cx).project_context.clone();
         let context_server_registry = parent_thread.read(cx).context_server_registry.clone();
@@ -998,6 +1007,7 @@ impl Thread {
             templates,
             model,
             action_log,
+            profile,
             cx,
         );
         thread.subagent_context = Some(SubagentContext {
@@ -1022,6 +1032,7 @@ impl Thread {
             templates,
             model,
             cx.new(|_cx| ActionLog::new(project)),
+            None,
             cx,
         )
     }
@@ -1033,17 +1044,35 @@ impl Thread {
         templates: Arc<Templates>,
         model: Option<Arc<dyn LanguageModel>>,
         action_log: Entity<ActionLog>,
+        profile: Option<AgentProfileId>,
         cx: &mut Context<Self>,
     ) -> Self {
         let settings = AgentSettings::get_global(cx);
-        let profile_id = settings.default_profile.clone();
-        let enable_thinking = settings
-            .default_model
+        let profile_id = profile.unwrap_or_else(|| settings.default_profile.clone());
+        let default_profile = settings.default_profile.clone();
+
+        // Get profile settings before resolving model (to avoid borrow conflicts)
+        let profile_settings = settings.profiles.get(&profile_id).cloned();
+        let global_default_model = settings.default_model.clone();
+
+        // Resolve model from profile if specified, otherwise use the passed model
+        let model = if profile_id != default_profile {
+            // A specific profile was requested, try to use its model
+            Self::resolve_profile_model(&profile_id, cx).or(model)
+        } else {
+            model
+        };
+
+        // Get thinking settings from the profile's default model if available
+        let enable_thinking = profile_settings
             .as_ref()
+            .and_then(|p| p.default_model.as_ref())
+            .or(global_default_model.as_ref())
             .is_some_and(|model| model.enable_thinking);
-        let thinking_effort = settings
-            .default_model
+        let thinking_effort = profile_settings
             .as_ref()
+            .and_then(|p| p.default_model.as_ref())
+            .or(global_default_model.as_ref())
             .and_then(|model| model.effort.clone());
         let (prompt_capabilities_tx, prompt_capabilities_rx) =
             watch::channel(Self::prompt_capabilities(model.as_deref()));
@@ -4083,7 +4112,7 @@ mod tests {
         cx.update(|cx| {
             let mut subagents = Vec::new();
             for _ in 0..count {
-                let subagent = cx.new(|cx| Thread::new_subagent(parent, cx));
+                let subagent = cx.new(|cx| Thread::new_subagent(parent, None, cx));
                 parent.update(cx, |thread, _cx| {
                     thread.register_running_subagent(subagent.downgrade());
                 });

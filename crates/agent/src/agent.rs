@@ -1759,6 +1759,7 @@ impl NativeThreadEnvironment {
     pub(crate) fn create_subagent_thread(
         &self,
         label: String,
+        profile: Option<agent_settings::AgentProfileId>,
         cx: &mut App,
     ) -> Result<Rc<dyn SubagentHandle>> {
         let Some(parent_thread_entity) = self.thread.upgrade() else {
@@ -1769,14 +1770,14 @@ impl NativeThreadEnvironment {
         let parent_session_id = parent_thread.id().clone();
 
         if current_depth >= MAX_SUBAGENT_DEPTH {
-            return Err(anyhow!(
+            return Err(anyhow::anyhow!(
                 "Maximum subagent depth ({}) reached",
                 MAX_SUBAGENT_DEPTH
             ));
         }
 
         let subagent_thread: Entity<Thread> = cx.new(|cx| {
-            let mut thread = Thread::new_subagent(&parent_thread_entity, cx);
+            let mut thread = Thread::new_subagent(&parent_thread_entity, profile, cx);
             thread.set_title(label.into(), cx);
             thread
         });
@@ -1887,8 +1888,13 @@ impl ThreadEnvironment for NativeThreadEnvironment {
         })
     }
 
-    fn create_subagent(&self, label: String, cx: &mut App) -> Result<Rc<dyn SubagentHandle>> {
-        self.create_subagent_thread(label, cx)
+    fn create_subagent(
+        &self,
+        label: String,
+        profile: Option<agent_settings::AgentProfileId>,
+        cx: &mut App,
+    ) -> Result<Rc<dyn SubagentHandle>> {
+        self.create_subagent_thread(label, profile, cx)
     }
 
     fn resume_subagent(

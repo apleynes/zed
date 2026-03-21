@@ -44,6 +44,10 @@ pub struct SpawnAgentToolInput {
     /// Session ID of an existing agent session to continue instead of creating a new one.
     #[serde(default)]
     pub session_id: Option<acp::SessionId>,
+    /// Optional profile ID to use for this subagent. If not specified, the subagent will use the default profile.
+    /// The profile controls which tools are available and can specify a default model.
+    #[serde(default)]
+    pub profile: Option<agent_settings::AgentProfileId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,7 +149,7 @@ impl AgentTool for SpawnAgentTool {
                 let subagent = if let Some(session_id) = input.session_id {
                     self.environment.resume_subagent(session_id, cx)
                 } else {
-                    self.environment.create_subagent(input.label, cx)
+                    self.environment.create_subagent(input.label, input.profile, cx)
                 };
                 let subagent = subagent.map_err(|err| SpawnAgentToolOutput::Error {
                     session_id: None,

@@ -2946,10 +2946,18 @@ impl Thread {
             self.messages.len()
         );
 
+        // Get custom prompt from profile
+        let custom_instructions = AgentSettings::get_global(cx)
+            .profiles
+            .get(&self.profile_id)
+            .and_then(|profile| profile.custom_prompt.as_ref())
+            .map(|prompt| prompt.to_string());
+
         let system_prompt = SystemPromptTemplate {
             project: self.project_context.read(cx),
             available_tools,
             model_name: self.model.as_ref().map(|m| m.name().0.to_string()),
+            custom_instructions,
         }
         .render(&self.templates)
         .context("failed to build system prompt")

@@ -39,6 +39,8 @@ pub struct SystemPromptTemplate<'a> {
     pub project: &'a prompt_store::ProjectContext,
     pub available_tools: Vec<SharedString>,
     pub model_name: Option<String>,
+    /// Custom instructions from the active agent profile.
+    pub custom_instructions: Option<String>,
 }
 
 impl Template for SystemPromptTemplate<'_> {
@@ -81,6 +83,7 @@ mod tests {
             project: &project,
             available_tools: vec!["echo".into()],
             model_name: Some("test-model".to_string()),
+            custom_instructions: None,
         };
         let templates = Templates::new();
         let rendered = template.render(&templates).unwrap();

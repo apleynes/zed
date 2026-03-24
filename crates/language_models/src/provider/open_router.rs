@@ -486,7 +486,7 @@ pub fn into_open_router(
         temperature: request.temperature.unwrap_or(0.4),
         max_tokens: max_output_tokens,
         parallel_tool_calls: if model.supports_parallel_tool_calls() && !request.tools.is_empty() {
-            Some(false)
+            Some(true)
         } else {
             None
         },

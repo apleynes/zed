@@ -534,7 +534,7 @@ pub fn into_mistral(
                 _ => None,
             },
             parallel_tool_calls: if !request.tools.is_empty() {
-                Some(false)
+                Some(true)
             } else {
                 None
             },

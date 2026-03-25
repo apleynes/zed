@@ -1535,6 +1535,7 @@ impl EditAgentTest {
                 project: &project_context,
                 available_tools: tool_names,
                 model_name: None,
+                custom_instructions: None,
             };
             let templates = Templates::new();
             template.render(&templates).unwrap()

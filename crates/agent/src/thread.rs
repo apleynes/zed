@@ -20,7 +20,6 @@ use anyhow::{Context as _, Result, anyhow};
 use chrono::{DateTime, Utc};
 use client::UserStore;
 use cloud_api_types::Plan;
-use cloud_llm_client::CompletionIntent;
 use collections::{HashMap, HashSet, IndexMap};
 use fs::Fs;
 use futures::stream;
@@ -35,12 +34,12 @@ use gpui::{
 };
 use heck::ToSnakeCase as _;
 use language_model::{
-    LanguageModel, LanguageModelCompletionError, LanguageModelCompletionEvent, LanguageModelId,
-    LanguageModelImage, LanguageModelProviderId, LanguageModelRegistry, LanguageModelRequest,
-    LanguageModelRequestMessage, LanguageModelRequestTool, LanguageModelToolResult,
-    LanguageModelToolResultContent, LanguageModelToolSchemaFormat, LanguageModelToolUse,
-    LanguageModelToolUseId, Role, SelectedModel, Speed, StopReason, TokenUsage,
-    ZED_CLOUD_PROVIDER_ID,
+    CompletionIntent, LanguageModel, LanguageModelCompletionError, LanguageModelCompletionEvent,
+    LanguageModelId, LanguageModelImage, LanguageModelProviderId, LanguageModelRegistry,
+    LanguageModelRequest, LanguageModelRequestMessage, LanguageModelRequestTool,
+    LanguageModelToolResult, LanguageModelToolResultContent, LanguageModelToolSchemaFormat,
+    LanguageModelToolUse, LanguageModelToolUseId, Role, SelectedModel, Speed, StopReason,
+    TokenUsage, ZED_CLOUD_PROVIDER_ID,
 };
 use project::Project;
 use prompt_store::ProjectContext;
@@ -294,9 +293,6 @@ impl UserMessage {
                             .ok();
                         }
                         MentionUri::Thread { .. } => {
-                            write!(&mut thread_context, "\n{}\n", content).ok();
-                        }
-                        MentionUri::TextThread { .. } => {
                             write!(&mut thread_context, "\n{}\n", content).ok();
                         }
                         MentionUri::Rule { .. } => {
@@ -1341,7 +1337,7 @@ impl Thread {
     pub fn to_db(&self, cx: &App) -> Task<DbThread> {
         let initial_project_snapshot = self.initial_project_snapshot.clone();
         let mut thread = DbThread {
-            title: self.title(),
+            title: self.title().unwrap_or_default(),
             messages: self.messages.clone(),
             updated_at: self.updated_at,
             detailed_summary: self.summary.clone(),
@@ -1832,14 +1828,6 @@ impl Thread {
             ..Default::default()
         }));
         cx.notify();
-    }
-
-    #[cfg(feature = "eval")]
-    pub fn proceed(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> Result<mpsc::UnboundedReceiver<Result<ThreadEvent>>> {
-        self.run_turn(cx)
     }
 
     fn run_turn(
@@ -2520,8 +2508,8 @@ impl Thread {
         }
     }
 
-    pub fn title(&self) -> SharedString {
-        self.title.clone().unwrap_or("New Thread".into())
+    pub fn title(&self) -> Option<SharedString> {
+        self.title.clone()
     }
 
     pub fn is_generating_summary(&self) -> bool {
@@ -2728,6 +2716,13 @@ impl Thread {
         completion_intent: CompletionIntent,
         cx: &App,
     ) -> Result<LanguageModelRequest> {
+        let completion_intent =
+            if self.is_subagent() && completion_intent == CompletionIntent::UserPrompt {
+                CompletionIntent::Subagent
+            } else {
+                completion_intent
+            };
+
         let model = self.model().context("No language model configured")?;
         let tools = if let Some(turn) = self.running_turn.as_ref() {
             turn.tools

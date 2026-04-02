@@ -120,6 +120,7 @@ use std::{
     borrow::Cow,
     collections::BTreeMap,
     ffi::OsString,
+    future::Future,
     ops::{Not as _, Range},
     path::{Path, PathBuf},
     pin::pin,
@@ -149,6 +150,8 @@ pub use fs::*;
 pub use language::Location;
 #[cfg(any(test, feature = "test-support"))]
 pub use prettier::FORMAT_SUFFIX as TEST_PRETTIER_FORMAT_SUFFIX;
+#[cfg(any(test, feature = "test-support"))]
+pub use prettier::RANGE_FORMAT_SUFFIX as TEST_PRETTIER_RANGE_FORMAT_SUFFIX;
 pub use task_inventory::{
     BasicContextProvider, ContextProviderWithTasks, DebugScenarioContext, Inventory, TaskContexts,
     TaskSourceKind,
@@ -1029,6 +1032,8 @@ impl DirectoryLister {
     }
 }
 
+pub const CURRENT_PROJECT_FEATURES: &[&str] = &["new-style-anchors"];
+
 #[cfg(feature = "test-support")]
 pub const DEFAULT_COMPLETION_CONTEXT: CompletionContext = CompletionContext {
     trigger_kind: lsp::CompletionTriggerKind::INVOKED,
@@ -1185,7 +1190,6 @@ impl Project {
                     worktree_store.clone(),
                     environment.clone(),
                     manifest_tree.clone(),
-                    fs.clone(),
                     cx,
                 )
             });
@@ -1226,12 +1230,23 @@ impl Project {
                 )
             });
 
+            let git_store = cx.new(|cx| {
+                GitStore::local(
+                    &worktree_store,
+                    buffer_store.clone(),
+                    environment.clone(),
+                    fs.clone(),
+                    cx,
+                )
+            });
+
             let task_store = cx.new(|cx| {
                 TaskStore::local(
                     buffer_store.downgrade(),
                     worktree_store.clone(),
                     toolchain_store.read(cx).as_language_toolchain_store(),
                     environment.clone(),
+                    git_store.clone(),
                     cx,
                 )
             });
@@ -1262,16 +1277,6 @@ impl Project {
                     manifest_tree,
                     languages.clone(),
                     client.http_client(),
-                    fs.clone(),
-                    cx,
-                )
-            });
-
-            let git_store = cx.new(|cx| {
-                GitStore::local(
-                    &worktree_store,
-                    buffer_store.clone(),
-                    environment.clone(),
                     fs.clone(),
                     cx,
                 )
@@ -1411,30 +1416,6 @@ impl Project {
                 )
             });
 
-            let task_store = cx.new(|cx| {
-                TaskStore::remote(
-                    buffer_store.downgrade(),
-                    worktree_store.clone(),
-                    toolchain_store.read(cx).as_language_toolchain_store(),
-                    remote.read(cx).proto_client(),
-                    REMOTE_SERVER_PROJECT_ID,
-                    cx,
-                )
-            });
-
-            let settings_observer = cx.new(|cx| {
-                SettingsObserver::new_remote(
-                    fs.clone(),
-                    worktree_store.clone(),
-                    task_store.clone(),
-                    Some(remote_proto.clone()),
-                    false,
-                    cx,
-                )
-            });
-            cx.subscribe(&settings_observer, Self::on_settings_observer_event)
-                .detach();
-
             let context_server_store = cx.new(|cx| {
                 ContextServerStore::remote(
                     rpc::proto::REMOTE_SERVER_PROJECT_ID,
@@ -1499,8 +1480,38 @@ impl Project {
                 )
             });
 
-            let agent_server_store =
-                cx.new(|_| AgentServerStore::remote(REMOTE_SERVER_PROJECT_ID, remote.clone()));
+            let task_store = cx.new(|cx| {
+                TaskStore::remote(
+                    buffer_store.downgrade(),
+                    worktree_store.clone(),
+                    toolchain_store.read(cx).as_language_toolchain_store(),
+                    remote.read(cx).proto_client(),
+                    REMOTE_SERVER_PROJECT_ID,
+                    git_store.clone(),
+                    cx,
+                )
+            });
+
+            let settings_observer = cx.new(|cx| {
+                SettingsObserver::new_remote(
+                    fs.clone(),
+                    worktree_store.clone(),
+                    task_store.clone(),
+                    Some(remote_proto.clone()),
+                    false,
+                    cx,
+                )
+            });
+            cx.subscribe(&settings_observer, Self::on_settings_observer_event)
+                .detach();
+
+            let agent_server_store = cx.new(|_| {
+                AgentServerStore::remote(
+                    REMOTE_SERVER_PROJECT_ID,
+                    remote.clone(),
+                    worktree_store.clone(),
+                )
+            });
 
             cx.subscribe(&remote, Self::on_remote_client_event).detach();
 
@@ -1637,6 +1648,10 @@ impl Project {
                 project_id: remote_id,
                 committer_email: committer.email,
                 committer_name: committer.name,
+                features: CURRENT_PROJECT_FEATURES
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
             })
             .await?;
         Self::from_join_project_response(
@@ -1719,6 +1734,17 @@ impl Project {
             )
         });
 
+        let git_store = cx.new(|cx| {
+            GitStore::remote(
+                // In this remote case we pass None for the environment
+                &worktree_store,
+                buffer_store.clone(),
+                client.clone().into(),
+                remote_id,
+                cx,
+            )
+        });
+
         let task_store = cx.new(|cx| {
             if run_tasks {
                 TaskStore::remote(
@@ -1727,6 +1753,7 @@ impl Project {
                     Arc::new(EmptyToolchainStore),
                     client.clone().into(),
                     remote_id,
+                    git_store.clone(),
                     cx,
                 )
             } else {
@@ -1741,17 +1768,6 @@ impl Project {
                 task_store.clone(),
                 None,
                 true,
-                cx,
-            )
-        });
-
-        let git_store = cx.new(|cx| {
-            GitStore::remote(
-                // In this remote case we pass None for the environment
-                &worktree_store,
-                buffer_store.clone(),
-                client.clone().into(),
-                remote_id,
                 cx,
             )
         });
@@ -2078,6 +2094,12 @@ impl Project {
         self.worktree_store.clone()
     }
 
+    /// Returns a future that resolves when all visible worktrees have completed
+    /// their initial scan.
+    pub fn wait_for_initial_scan(&self, cx: &App) -> impl Future<Output = ()> + use<> {
+        self.worktree_store.read(cx).wait_for_initial_scan()
+    }
+
     #[inline]
     pub fn context_server_store(&self) -> Entity<ContextServerStore> {
         self.context_server_store.clone()
@@ -2287,8 +2309,11 @@ impl Project {
         self.worktree_store.read(cx).visible_worktrees(cx)
     }
 
-    pub fn default_path_list(&self, cx: &App) -> PathList {
-        let worktree_roots = self
+    pub(crate) fn default_visible_worktree_paths(
+        worktree_store: &WorktreeStore,
+        cx: &App,
+    ) -> Vec<PathBuf> {
+        worktree_store
             .visible_worktrees(cx)
             .sorted_by(|left, right| {
                 left.read(cx)
@@ -2304,7 +2329,12 @@ impl Project {
                     Some(path.to_path_buf())
                 }
             })
-            .collect::<Vec<_>>();
+            .collect()
+    }
+
+    pub fn default_path_list(&self, cx: &App) -> PathList {
+        let worktree_roots =
+            Self::default_visible_worktree_paths(&self.worktree_store.read(cx), cx);
 
         if worktree_roots.is_empty() {
             PathList::new(&[paths::home_dir().as_path()])

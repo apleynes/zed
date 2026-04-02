@@ -537,6 +537,7 @@ fn main() {
             tx.send(Some(options)).log_err();
         })
         .detach();
+        ui::on_new_scrollbars::<SettingsStore>(cx);
 
         let node_runtime = NodeRuntime::new(client.http_client(), Some(shell_env_loaded_rx), rx);
 
@@ -596,6 +597,8 @@ fn main() {
             }
         })
         .detach();
+
+        let is_new_install = matches!(&installation_id, Some(IdType::New(_)));
 
         // We should rename these in the future to `first app open`, `first app open for release channel`, and `app open`
         if let (Some(system_id), Some(installation_id)) = (&system_id, &installation_id) {
@@ -679,9 +682,9 @@ fn main() {
         );
         agent_ui::init(
             app_state.fs.clone(),
-            app_state.client.clone(),
-            prompt_builder.clone(),
+            prompt_builder,
             app_state.languages.clone(),
+            is_new_install,
             false,
             cx,
         );
@@ -815,7 +818,7 @@ fn main() {
 
         let menus = app_menus(cx);
         cx.set_menus(menus);
-        initialize_workspace(app_state.clone(), prompt_builder, cx);
+        initialize_workspace(app_state.clone(), cx);
 
         cx.activate(true);
 
@@ -854,6 +857,7 @@ fn main() {
                 diff_paths,
                 wsl,
                 diff_all: diff_all_mode,
+                dev_container: args.dev_container,
             })
         }
 
@@ -1205,6 +1209,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
     }
 
     let mut task = None;
+    let dev_container = request.dev_container;
     if !request.open_paths.is_empty() || !request.diff_paths.is_empty() {
         let app_state = app_state.clone();
         task = Some(cx.spawn(async move |cx| {
@@ -1215,7 +1220,10 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                 &request.diff_paths,
                 request.diff_all,
                 app_state,
-                workspace::OpenOptions::default(),
+                workspace::OpenOptions {
+                    open_in_dev_container: dev_container,
+                    ..Default::default()
+                },
                 cx,
             )
             .await?;
@@ -1632,6 +1640,13 @@ struct Args {
     #[cfg(target_os = "windows")]
     #[arg(long, value_name = "USER@DISTRO")]
     wsl: Option<String>,
+
+    /// Open the project in a dev container.
+    ///
+    /// Automatically triggers "Reopen in Dev Container" if a `.devcontainer/`
+    /// configuration is found in the project directory.
+    #[arg(long)]
+    dev_container: bool,
 
     /// Instructs zed to run as a dev server on this machine. (not implemented)
     #[arg(long)]

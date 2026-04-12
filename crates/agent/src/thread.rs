@@ -1062,6 +1062,7 @@ impl Thread {
         // Get profile settings before resolving model (to avoid borrow conflicts)
         let profile_settings = settings.profiles.get(&profile_id).cloned();
         let global_default_model = settings.default_model.clone();
+        let speed = settings.default_model.as_ref().and_then(|model| model.speed);
 
         // Resolve model from profile if specified, otherwise use the passed model
         let model = if profile_id != default_profile {
@@ -1082,10 +1083,6 @@ impl Thread {
             .and_then(|p| p.default_model.as_ref())
             .or(global_default_model.as_ref())
             .and_then(|model| model.effort.clone());
-        let speed = settings
-            .default_model
-            .as_ref()
-            .and_then(|model| model.speed);
         let (prompt_capabilities_tx, prompt_capabilities_rx) =
             watch::channel(Self::prompt_capabilities(model.as_deref()));
         Self {

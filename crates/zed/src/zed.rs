@@ -410,6 +410,22 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             .detach();
         }
 
+        cx.spawn_in(window, async move |_this, cx| {
+            const TELEMETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+            loop {
+                cx.background_executor().timer(TELEMETRY_INTERVAL).await;
+                if cx
+                    .update(|window, cx| {
+                        input_latency_ui::report_input_latency_telemetry(window, cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         let multi_workspace_handle = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             multi_workspace_handle
@@ -557,8 +573,8 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             status_bar.add_left_item(lsp_button, window, cx);
             status_bar.add_left_item(diagnostic_summary, window, cx);
             status_bar.add_left_item(active_file_name, window, cx);
-            status_bar.add_left_item(activity_indicator, window, cx);
             status_bar.add_left_item(merge_conflict_indicator, window, cx);
+            status_bar.add_left_item(activity_indicator, window, cx);
             status_bar.add_right_item(edit_prediction_ui, window, cx);
             status_bar.add_right_item(active_buffer_encoding, window, cx);
             status_bar.add_right_item(active_buffer_language, window, cx);
@@ -2058,16 +2074,16 @@ fn reload_keymaps(cx: &mut App, mut user_key_bindings: Vec<KeyBinding>) {
 
 pub fn load_default_keymap(cx: &mut App) {
     let base_keymap = *BaseKeymap::get_global(cx);
-    if base_keymap == BaseKeymap::None {
-        return;
-    }
+    if base_keymap != BaseKeymap::None {
+        cx.bind_keys(
+            KeymapFile::load_asset(DEFAULT_KEYMAP_PATH, Some(KeybindSource::Default), cx).unwrap(),
+        );
 
-    cx.bind_keys(
-        KeymapFile::load_asset(DEFAULT_KEYMAP_PATH, Some(KeybindSource::Default), cx).unwrap(),
-    );
-
-    if let Some(asset_path) = base_keymap.asset_path() {
-        cx.bind_keys(KeymapFile::load_asset(asset_path, Some(KeybindSource::Base), cx).unwrap());
+        if let Some(asset_path) = base_keymap.asset_path() {
+            cx.bind_keys(
+                KeymapFile::load_asset(asset_path, Some(KeybindSource::Base), cx).unwrap(),
+            );
+        }
     }
 
     if VimModeSetting::get_global(cx).0 || vim_mode_setting::HelixModeSetting::get_global(cx).0 {
@@ -3028,6 +3044,10 @@ mod tests {
         let window_is_edited = |window: WindowHandle<MultiWorkspace>, cx: &mut TestAppContext| {
             cx.update(|cx| window.read(cx).unwrap().workspace().read(cx).is_edited())
         };
+        let workspace_database_id = |window: WindowHandle<MultiWorkspace>,
+                                     cx: &mut TestAppContext| {
+            cx.update(|cx| window.read(cx).unwrap().workspace().read(cx).database_id())
+        };
 
         let editor = window
             .read_with(cx, |multi_workspace, cx| {
@@ -3042,6 +3062,11 @@ mod tests {
             .unwrap();
 
         assert!(!window_is_edited(window, cx));
+        let initial_database_id = workspace_database_id(window, cx);
+        assert!(
+            initial_database_id.is_some(),
+            "a restored workspace must have a stable database id"
+        );
 
         // Editing a buffer marks the window as edited.
         window
@@ -3087,6 +3112,11 @@ mod tests {
                 .unwrap()
         });
         assert!(window_is_edited(window, cx));
+        assert_eq!(
+            workspace_database_id(window, cx),
+            initial_database_id,
+            "the workspace must keep the same database id across a close/reopen cycle"
+        );
 
         window
             .update(cx, |multi_workspace, _, cx| {
